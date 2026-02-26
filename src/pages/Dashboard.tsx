@@ -11,7 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { AlertTriangle, TrendingUp, TrendingDown, CheckSquare, Square } from 'lucide-react'
-import { getTrades, getChecklistState, saveChecklistState, getRules } from '../lib/db'
+import { getTrades, getChecklistState, saveChecklistState, getRules, getChecklistItems } from '../lib/db'
 import { Trade } from '../types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -44,14 +44,6 @@ interface CalDay {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CHECKLIST_ITEMS = [
-  'Check the news',
-  'Review trading plan',
-  'Analyze the market',
-  'Spot entry and exit points',
-  'Calculate risk-reward',
-  'Set stop loss and take profit',
-]
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -269,6 +261,7 @@ export default function Dashboard() {
   )
   const ruleViolations = useMemo(() => buildRuleViolations(filtered), [filtered])
 
+  const checklistItems = useMemo(() => getChecklistItems().filter(i => i.is_active), [])
   const [checklist, setChecklist] = useState<Record<string, boolean>>(() => getChecklistState(today))
 
   const toggleCheck = (item: string) => {
@@ -298,7 +291,7 @@ export default function Dashboard() {
     return max || 1
   }, [calDays])
 
-  const checklistDone = CHECKLIST_ITEMS.filter(i => checklist[i]).length
+  const checklistDone = checklistItems.filter(i => checklist[i.id]).length
   const equityIsPositive = stats.netPnl >= 0
 
   const profitFactorDisplay =
@@ -544,39 +537,39 @@ export default function Dashboard() {
               Pre-Market Checklist
             </h2>
             <span className="text-xs text-text-muted">
-              {checklistDone}/{CHECKLIST_ITEMS.length}
+              {checklistDone}/{checklistItems.length}
             </span>
           </div>
           {/* Progress bar */}
           <div className="h-1 bg-bg-secondary rounded-full mb-4 overflow-hidden">
             <div
               className="h-full bg-profit rounded-full transition-all duration-300"
-              style={{ width: `${(checklistDone / CHECKLIST_ITEMS.length) * 100}%` }}
+              style={{ width: `${(checklistDone / checklistItems.length) * 100}%` }}
             />
           </div>
           <div className="space-y-1">
-            {CHECKLIST_ITEMS.map(item => (
+            {checklistItems.map(item => (
               <button
-                key={item}
-                onClick={() => toggleCheck(item)}
+                key={item.id}
+                onClick={() => toggleCheck(item.id)}
                 className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-bg-hover transition-colors text-left"
               >
-                {checklist[item] ? (
+                {checklist[item.id] ? (
                   <CheckSquare size={15} className="text-profit shrink-0" />
                 ) : (
                   <Square size={15} className="text-text-muted shrink-0" />
                 )}
                 <span
                   className={`text-sm ${
-                    checklist[item] ? 'text-text-muted line-through' : 'text-text-primary'
+                    checklist[item.id] ? 'text-text-muted line-through' : 'text-text-primary'
                   }`}
                 >
-                  {item}
+                  {item.label}
                 </span>
               </button>
             ))}
           </div>
-          {checklistDone === CHECKLIST_ITEMS.length && (
+          {checklistDone === checklistItems.length && (
             <p className="text-center text-profit text-sm font-medium mt-3">
               ✓ Ready to trade
             </p>

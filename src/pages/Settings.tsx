@@ -6,6 +6,7 @@ import {
 import {
   getAccounts, saveAccounts, getActiveAccountId, setActiveAccountId, type AccountRecord,
   saveCalcSettings, getSupabaseConfig, saveSupabaseConfig, getTrades,
+  saveRules, saveChecklistItems,
 } from '../lib/db'
 import { loadSampleData } from '../lib/seedData'
 import {
@@ -15,6 +16,7 @@ import {
 } from '../lib/supabase'
 import { syncTrades } from '../lib/sync'
 import type { Trade } from '../types'
+import { DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS } from '../types'
 
 // ─── Account form fields (all strings for input binding) ──────────────────────
 
@@ -214,6 +216,7 @@ export default function Settings() {
 
   // ── Danger zone ──────────────────────────────────────────────────────────────
   const [clearConfirm, setClearConfirm] = useState<'trades' | 'all' | null>(null)
+  const [rulesReset, setRulesReset] = useState(false)
 
   useEffect(() => { getSession().then(s => setSession(s)) }, [])
 
@@ -378,6 +381,19 @@ export default function Settings() {
     }
     keys.forEach(k => localStorage.removeItem(k))
     window.location.replace('/')
+  }
+
+  function handleResetRulesAndChecklist() {
+    saveRules(DEFAULT_RULES)
+    const seeded = DEFAULT_CHECKLIST_LABELS.map((label, i) => ({
+      id: `cl-${i}`,
+      label,
+      order_index: i,
+      is_active: true,
+    }))
+    saveChecklistItems(seeded)
+    setRulesReset(true)
+    setTimeout(() => window.location.replace('/'), 1000)
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────────
@@ -660,6 +676,22 @@ export default function Settings() {
             >
               Load Sample Data
             </button>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <p className="text-sm font-medium text-text-primary mb-0.5">Reset Rules & Checklist</p>
+            <p className="text-xs text-text-muted mb-3">
+              Overwrites your rules and pre-market checklist with the latest defaults. Your trades, journal, and settings are not affected.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleResetRulesAndChecklist}
+                className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5"
+              >
+                <RefreshCw size={12} /> Reset to Defaults
+              </button>
+              {rulesReset && <span className="flex items-center gap-1 text-xs text-profit"><Check size={12} /> Updated</span>}
+            </div>
           </div>
         </div>
       </Section>

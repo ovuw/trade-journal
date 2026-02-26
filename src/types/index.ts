@@ -108,22 +108,27 @@ export const DEFAULT_MISTAKE_TAGS: Tag[] = [
 ]
 
 export const DEFAULT_RULES: Rule[] = [
-  { id: 'market-structure', name: 'Check market structure first', description: 'Breakouts only work in uptrending markets. If SPY/QQQ are in a downtrend, reduce size or sit in cash. Do not trade breakouts in falling markets.', category: 'Process', is_active: true },
+  { id: 'market-structure', name: 'Check market structure before every trade', description: 'Check SPY/QQQ before every trade. SPY\'s 10D EMA must be above the 20D SMA, both sloping up. Do not trade breakouts if SPY is in a downtrend or choppy market. If SPY is >11% above the 200SMA, cut position size in half. If SPY is >13% above the 200SMA or extended >6 ATR from the 50SMA, sit in cash — the risk/reward is gone.', category: 'Process', is_active: true },
   { id: 'confirm-volume', name: 'Confirm volume before entry', description: 'Breakouts need 1.5x+ average volume. EPs need average daily volume in the first 15–20 minutes. No volume = no edge. Do not enter without it.', category: 'Entry', is_active: true },
-  { id: 'stop-at-lows', name: 'Stop at the day\'s low (max 1.5x ATR)', description: 'Stop loss goes at the low of the entry day. Width must not exceed 1–1.5x the average daily range. If the stop is too wide, skip the trade.', category: 'Risk', is_active: true },
-  { id: 'max-risk-1pct', name: 'Risk max 1% of account per trade', description: 'Typically risk 0.25–0.5% per trade, never more than 1%. Position size is determined by stop distance, not conviction. Size down on wider stops.', category: 'Risk', is_active: true },
-  { id: 'take-partials', name: 'Sell ⅓–½ after 20% gain or 3–5 days', description: 'After a 20%+ gain or 3–5 days of holding, sell one third to one half of the position. Move stop to breakeven on the remainder.', category: 'Exit', is_active: true },
-  { id: 'trail-ma', name: 'Trail remainder with 10/20-day MA', description: 'After taking partials, trail the remaining position with the 10-day or 20-day MA. Exit on the first close below it. Never let a winner turn into a loser.', category: 'Exit', is_active: true },
-  { id: 'no-add-to-loser', name: 'Never add to a losing position', description: 'Adding to a loser compounds the mistake. If the trade is not working, cut it. Re-evaluate only after the position is flat.', category: 'Risk', is_active: true },
-  { id: 'focus-list-only', name: 'Only trade from the focus list', description: 'Trade only pre-planned setups from your focus list of 0–10 names. No impulse trades. If it wasn\'t on the list before the open, don\'t take it.', category: 'Process', is_active: true },
+  { id: 'stop-at-lows', name: 'Stop at the day\'s low or closest POI', description: 'Place hard stop at the low of the entry day. If there are multiple points of interest in the same area (daily MA, previous day\'s low, breakout level) the stock tends to respect the lowest one — use that as your stop. Stop width must not exceed 1x ATR from entry. If the stop is too wide, skip the trade.', category: 'Risk', is_active: true },
+  { id: 'position-sizing', name: 'Size position so max loss never exceeds 1%', description: 'Size position so max loss never exceeds 1% of account. Typical target is 0.5%. Position size is 10–20% of account — use a larger position when the stop is tight, smaller when it\'s wide. The stop distance drives the size, not conviction. Never risk more than 1% of total account on a single trade.', category: 'Risk', is_active: true },
+  { id: 'take-partials', name: 'Sell 25–50% if up 20%+ within first 3–5 days', description: 'Sell 25–50% if up 20%+ within the first 3–5 days. Take more off in choppy or extended markets, less in strong trending markets. Move stop to breakeven on the remainder. If the stock hasn\'t moved after 5–7 days, sell 50% to free up capital.', category: 'Exit', is_active: true },
+  { id: 'trail-ma', name: 'Trail remainder with 10/20-day MA', description: 'Trail the remaining position with the 10 or 20-day MA. Use the 10MA for faster movers, 20MA for slower ones (based on ADR). Exit on a daily close below the MA — intraday dips don\'t count. Wait for the second-last 1-minute candle of the day before pulling the trigger. Optionally split the exit: sell 25% at the 10MA and 25% at the 20MA.', category: 'Exit', is_active: true },
+  { id: 'no-add-to-loser', name: 'Never add to a losing position', description: 'Adding to a loser compounds the mistake. If the trade is not working, cut it and re-evaluate only after the position is flat. You can add to a winner, but only as a completely separate trade with its own entry, stop, and position size — never average into an existing position.', category: 'Risk', is_active: true },
+  { id: 'focus-list-only', name: 'Only trade from the focus list', description: 'Build a list of 0–10 names with clear setups before the open. No impulse trades. If a stock wasn\'t on the list, only consider it if it clearly meets all entry and selection criteria — do the work first, then decide. Never chase.', category: 'Process', is_active: true },
+  { id: 'entry-confirmation', name: 'Both entry conditions must be met', description: 'Both conditions must be met before entering. The stock must break over the previous day\'s high AND over the breakout level. If they are at different prices, both must be cleared before entering. One without the other is not a valid entry.', category: 'Entry', is_active: true },
+  { id: 'orb-timing', name: 'Use correct ORB timeframe for entry', description: 'Match the ORB timeframe to when the breakout occurs — 1-min if the stock gaps up at the open, 5-min if it breaks within the first 5 minutes, 30-min if it breaks between 9:35–10:00am, 65-min if it breaks later in the morning. Do not chase entries outside the valid ORB window. For entries later in the day, wait for a fresh MACD cross on the 5-min chart (settings: 6, 20, 9) before entering.', category: 'Entry', is_active: true },
+  { id: 'chart-off-screen', name: 'Take chart off screen after entry', description: 'Once you have entered the trade and set your hard stop, remove the chart from view. Do not watch it tick. The stop is set — let the trade work without interference.', category: 'Process', is_active: true },
+  { id: 'stock-selection', name: 'Only trade stocks that meet all selection criteria', description: 'ADR must be >4% and average daily dollar volume >$50M over the last 20 days. The stock must have made a 30%+ gain in the last 30 days and have a history of making large clean moves while respecting the 10, 20, and 50-day MAs. The chart must show a linear and orderly pullback to the 10 or 20MA, with at least one tight day surfing the MA, a clear daily trend line, and price within ½ ATR of the breakout level.', category: 'Process', is_active: true },
 ]
 
 export const DEFAULT_CHECKLIST_LABELS: string[] = [
-  'Check market structure — is SPY/QQQ trending up?',
-  'Review focus list (0–10 names with clear setups)',
-  'Identify opening range high for each focus name',
-  'Confirm volume vs ADR (1.5x+ for breakouts)',
-  'Calculate position size (risk 0.25–1% of account)',
-  'Set stop loss at day\'s low before entering',
-  'Define partial exit level (20% gain or 3–5 days)',
+  'Peloton ride by 6:00am (30 min)',
+  'Shower and brush teeth — done by 7:00am',
+  'Check economic calendar for key events (Fed, CPI, earnings)',
+  'Review all watchlists (Flagged, NMS, Focus, Favorites)',
+  'Run daily scans',
+  'Confirm all Focus list stocks meet selection criteria (ADR >4%, $Vol >$50M, 30%+ gain, MA behavior)',
+  'Check if SPY/QQQ is in an uptrend',
+  'Draw entry and stop trend lines on each Focus list stock and set price alerts at entry levels',
 ]
