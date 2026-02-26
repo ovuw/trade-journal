@@ -88,40 +88,42 @@ export interface Trade {
 
 export const DEFAULT_SETUP_TAGS: Tag[] = [
   { id: 'breakout', name: 'Breakout', color: '#58a6ff' },
-  { id: 'vwap-reclaim', name: 'VWAP Reclaim', color: '#58a6ff' },
-  { id: 'pullback', name: 'Pullback', color: '#d29922' },
-  { id: 'trend-continuation', name: 'Trend Continuation', color: '#00c896' },
-  { id: 'reversal', name: 'Reversal', color: '#d29922' },
-  { id: 'gap-fill', name: 'Gap Fill', color: '#58a6ff' },
-  { id: 'momentum', name: 'Momentum', color: '#00c896' },
-  { id: 'range-break', name: 'Range Break', color: '#8b5cf6' },
+  { id: 'episodic-pivot', name: 'Episodic Pivot (EP)', color: '#00c896' },
+  { id: 'high-tight-flag', name: 'High Tight Flag (HTF)', color: '#8b5cf6' },
+  { id: 'pullback-10ma', name: 'Pullback to 10-day MA', color: '#d29922' },
+  { id: 'pullback-20ma', name: 'Pullback to 20-day MA', color: '#f0883e' },
 ]
 
 export const DEFAULT_MISTAKE_TAGS: Tag[] = [
-  { id: 'fomo', name: 'FOMO', color: '#ff4d4d' },
-  { id: 'oversize', name: 'Oversize', color: '#ff4d4d' },
-  { id: 'early-exit', name: 'Early Exit', color: '#ff8c00' },
-  { id: 'late-entry', name: 'Late Entry', color: '#ff8c00' },
+  { id: 'weak-gap', name: 'Weak Gap (no volume)', color: '#ff4d4d' },
+  { id: 'ignored-volume', name: 'Ignored Volume', color: '#ff4d4d' },
+  { id: 'held-below-ma', name: 'Held Below MA', color: '#ff8c00' },
+  { id: 'entered-too-early', name: 'Entered Too Early', color: '#ff8c00' },
+  { id: 'added-to-loser', name: 'Added to Loser', color: '#ff4d4d' },
+  { id: 'sold-too-early', name: 'Sold Too Early', color: '#ff8c00' },
+  { id: 'wrong-market', name: 'Wrong Market', color: '#ff4d4d' },
   { id: 'revenge-trade', name: 'Revenge Trade', color: '#ff4d4d' },
+  { id: 'oversize', name: 'Oversize', color: '#ff4d4d' },
   { id: 'no-stop', name: 'No Stop', color: '#ff4d4d' },
-  { id: 'chased-entry', name: 'Chased Entry', color: '#ff8c00' },
-  { id: 'ignored-signal', name: 'Ignored Signal', color: '#d29922' },
 ]
 
 export const DEFAULT_RULES: Rule[] = [
-  { id: 'no-first-15', name: 'No trading first 15 min', description: 'Avoid the volatile open. Wait for price to settle before entering any position.', category: 'Process', is_active: true },
-  { id: 'always-stop', name: 'Always set stop before entry', description: 'A stop must be placed before entering. No exceptions. If you can\'t define a stop, don\'t take the trade.', category: 'Risk', is_active: true },
-  { id: 'max-3-trades', name: 'Max 3 trades per day', description: 'After 3 trades, close the platform. Overtrading is a major source of losses.', category: 'Risk', is_active: true },
-  { id: 'a-plus-only', name: 'A+ setups only', description: 'Only enter trades that meet all your criteria. If you have to talk yourself into a trade, skip it.', category: 'Entry', is_active: true },
-  { id: 'no-average-down', name: 'No averaging down', description: 'Adding to a losing position compounds losses. Exit and re-evaluate instead.', category: 'Risk', is_active: true },
-  { id: 'follow-plan', name: 'Follow the trading plan', description: 'Stick to the pre-market plan. Do not deviate based on emotion or market noise during the session.', category: 'Process', is_active: true },
+  { id: 'market-structure', name: 'Check market structure first', description: 'Breakouts only work in uptrending markets. If SPY/QQQ are in a downtrend, reduce size or sit in cash. Do not trade breakouts in falling markets.', category: 'Process', is_active: true },
+  { id: 'confirm-volume', name: 'Confirm volume before entry', description: 'Breakouts need 1.5x+ average volume. EPs need average daily volume in the first 15–20 minutes. No volume = no edge. Do not enter without it.', category: 'Entry', is_active: true },
+  { id: 'stop-at-lows', name: 'Stop at the day\'s low (max 1.5x ATR)', description: 'Stop loss goes at the low of the entry day. Width must not exceed 1–1.5x the average daily range. If the stop is too wide, skip the trade.', category: 'Risk', is_active: true },
+  { id: 'max-risk-1pct', name: 'Risk max 1% of account per trade', description: 'Typically risk 0.25–0.5% per trade, never more than 1%. Position size is determined by stop distance, not conviction. Size down on wider stops.', category: 'Risk', is_active: true },
+  { id: 'take-partials', name: 'Sell ⅓–½ after 20% gain or 3–5 days', description: 'After a 20%+ gain or 3–5 days of holding, sell one third to one half of the position. Move stop to breakeven on the remainder.', category: 'Exit', is_active: true },
+  { id: 'trail-ma', name: 'Trail remainder with 10/20-day MA', description: 'After taking partials, trail the remaining position with the 10-day or 20-day MA. Exit on the first close below it. Never let a winner turn into a loser.', category: 'Exit', is_active: true },
+  { id: 'no-add-to-loser', name: 'Never add to a losing position', description: 'Adding to a loser compounds the mistake. If the trade is not working, cut it. Re-evaluate only after the position is flat.', category: 'Risk', is_active: true },
+  { id: 'focus-list-only', name: 'Only trade from the focus list', description: 'Trade only pre-planned setups from your focus list of 0–10 names. No impulse trades. If it wasn\'t on the list before the open, don\'t take it.', category: 'Process', is_active: true },
 ]
 
 export const DEFAULT_CHECKLIST_LABELS: string[] = [
-  'Check the news',
-  'Review trading plan',
-  'Analyze the market',
-  'Spot entry and exit points',
-  'Calculate risk-reward',
-  'Set stop loss and take profit',
+  'Check market structure — is SPY/QQQ trending up?',
+  'Review focus list (0–10 names with clear setups)',
+  'Identify opening range high for each focus name',
+  'Confirm volume vs ADR (1.5x+ for breakouts)',
+  'Calculate position size (risk 0.25–1% of account)',
+  'Set stop loss at day\'s low before entering',
+  'Define partial exit level (20% gain or 3–5 days)',
 ]
