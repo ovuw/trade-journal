@@ -7,6 +7,7 @@ import {
   getAccounts, saveAccounts, getActiveAccountId, setActiveAccountId, type AccountRecord,
   saveCalcSettings, getSupabaseConfig, saveSupabaseConfig, getTrades,
 } from '../lib/db'
+import { loadSampleData } from '../lib/seedData'
 import {
   isSupabaseConfigured, testConnection, getSession,
   signIn as supabaseSignIn, signOut as supabaseSignOut,
@@ -212,7 +213,7 @@ export default function Settings() {
   const importRef = useRef<HTMLInputElement>(null)
 
   // ── Danger zone ──────────────────────────────────────────────────────────────
-  const [clearConfirm, setClearConfirm] = useState(false)
+  const [clearConfirm, setClearConfirm] = useState<'trades' | 'all' | null>(null)
 
   useEffect(() => { getSession().then(s => setSession(s)) }, [])
 
@@ -349,7 +350,7 @@ export default function Settings() {
         for (const [key, val] of Object.entries(backup)) {
           if (key.startsWith('tj_')) localStorage.setItem(key, JSON.stringify(val))
         }
-        window.location.reload()
+        window.location.replace('/')
       } catch {
         alert('Invalid backup file — not a valid Trade Journal backup.')
       }
@@ -357,7 +358,17 @@ export default function Settings() {
     reader.readAsText(file)
   }
 
-  // ── Clear all data ────────────────────────────────────────────────────────────
+  // ── Clear data ────────────────────────────────────────────────────────────────
+
+  function handleClearTrades() {
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k === 'tj_trades' || k?.startsWith('tj_screenshot_')) keys.push(k)
+    }
+    keys.forEach(k => localStorage.removeItem(k))
+    window.location.replace('/')
+  }
 
   function handleClearData() {
     const keys: string[] = []
@@ -366,7 +377,7 @@ export default function Settings() {
       if (k?.startsWith('tj_')) keys.push(k)
     }
     keys.forEach(k => localStorage.removeItem(k))
-    window.location.reload()
+    window.location.replace('/')
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────────
@@ -413,7 +424,7 @@ export default function Settings() {
                       )}
                     </div>
                     <p className="text-xs text-text-muted mt-0.5">
-                      {[acc.broker, acc.currency, `$${acc.startingBalance.toLocaleString()}`, `${acc.maxRiskPct}% risk`]
+                      {[acc.broker, acc.currency, `$${(acc.startingBalance ?? 0).toLocaleString()}`, `${acc.maxRiskPct ?? 0}% risk`]
                         .filter(Boolean).join(' · ')}
                     </p>
                   </div>
@@ -637,45 +648,93 @@ export default function Settings() {
             </div>
             <p className="text-xs text-text-muted mt-2">Import will overwrite all current data and reload the app.</p>
           </div>
+
+          <div className="border-t border-border pt-4">
+            <p className="text-sm font-medium text-text-primary mb-0.5">Sample Data</p>
+            <p className="text-xs text-text-muted mb-3">
+              Load 24 realistic sample trades and 11 journal entries to explore the app. Replaces all current trades and journal entries.
+            </p>
+            <button
+              onClick={() => { loadSampleData(); window.location.replace('/') }}
+              className="btn-secondary text-sm py-1.5 px-3"
+            >
+              Load Sample Data
+            </button>
+          </div>
         </div>
       </Section>
 
       {/* ── Danger Zone ── */}
       <Section icon={Trash2} title="Danger Zone" titleClass="text-loss" borderClass="border-loss/20">
-        {!clearConfirm ? (
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-text-primary">Clear All Data</p>
-              <p className="text-xs text-text-muted mt-0.5">
-                Permanently deletes all trades, journal entries, rules, and settings.
-              </p>
-            </div>
-            <button
-              onClick={() => setClearConfirm(true)}
-              className="text-sm text-loss border border-loss/30 hover:bg-loss/10 rounded-md px-3 py-1.5 transition-colors"
-            >
-              Clear Data
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-text-primary">Are you absolutely sure?</p>
-            <p className="text-xs text-text-secondary">
-              This will permanently delete all your trades, journal entries, rules, and settings. Cannot be undone.
-            </p>
-            <div className="flex gap-2">
+        <div className="space-y-4">
+          {/* Clear trades only */}
+          {clearConfirm !== 'trades' ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Clear Trades</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Deletes all trade entries and screenshots. Keeps journal, rules, and settings.
+                </p>
+              </div>
               <button
-                onClick={handleClearData}
-                className="text-sm text-white bg-loss hover:bg-loss/80 rounded-md px-4 py-1.5 transition-colors font-medium"
+                onClick={() => setClearConfirm('trades')}
+                className="text-sm text-loss border border-loss/30 hover:bg-loss/10 rounded-md px-3 py-1.5 transition-colors shrink-0 ml-4"
               >
-                Yes, Delete Everything
-              </button>
-              <button onClick={() => setClearConfirm(false)} className="btn-secondary text-sm py-1.5 px-3">
-                Cancel
+                Clear Trades
               </button>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-text-primary">Delete all trades?</p>
+              <p className="text-xs text-text-secondary">All trade entries and local screenshots will be permanently removed. Cannot be undone.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleClearTrades}
+                  className="text-sm text-white bg-loss hover:bg-loss/80 rounded-md px-4 py-1.5 transition-colors font-medium"
+                >
+                  Yes, Delete Trades
+                </button>
+                <button onClick={() => setClearConfirm(null)} className="btn-secondary text-sm py-1.5 px-3">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-loss/10" />
+
+          {/* Clear everything */}
+          {clearConfirm !== 'all' ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-text-primary">Clear All Data</p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Permanently deletes all trades, journal entries, rules, and settings.
+                </p>
+              </div>
+              <button
+                onClick={() => setClearConfirm('all')}
+                className="text-sm text-loss border border-loss/30 hover:bg-loss/10 rounded-md px-3 py-1.5 transition-colors shrink-0 ml-4"
+              >
+                Clear Everything
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-text-primary">Are you absolutely sure?</p>
+              <p className="text-xs text-text-secondary">
+                This will permanently delete all your trades, journal entries, rules, and settings. Cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleClearData}
+                  className="text-sm text-white bg-loss hover:bg-loss/80 rounded-md px-4 py-1.5 transition-colors font-medium"
+                >
+                  Yes, Delete Everything
+                </button>
+                <button onClick={() => setClearConfirm(null)} className="btn-secondary text-sm py-1.5 px-3">Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
       </Section>
 
     </div>

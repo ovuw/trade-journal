@@ -63,7 +63,11 @@ export interface CalcSettings { accountBalance: number; maxRiskPct: number }
 
 export function getCalcSettings(): CalcSettings {
   try {
-    return JSON.parse(localStorage.getItem(CALC_KEY) || '{}') as CalcSettings
+    const parsed = JSON.parse(localStorage.getItem(CALC_KEY) || '{}') as Partial<CalcSettings>
+    return {
+      accountBalance: parsed.accountBalance ?? 10000,
+      maxRiskPct: parsed.maxRiskPct ?? 1,
+    }
   } catch {
     return { accountBalance: 10000, maxRiskPct: 1 }
   }
@@ -261,10 +265,19 @@ export interface AccountRecord {
   created_at: string
 }
 
+function sanitizeAccount(acc: AccountRecord): AccountRecord {
+  return {
+    ...acc,
+    startingBalance: acc.startingBalance ?? 10000,
+    maxRiskPct: acc.maxRiskPct ?? 1,
+    maxDailyLossPct: acc.maxDailyLossPct ?? 3,
+  }
+}
+
 export function getAccounts(): AccountRecord[] {
   try {
     const stored = localStorage.getItem(ACCOUNTS_KEY)
-    if (stored) return JSON.parse(stored) as AccountRecord[]
+    if (stored) return (JSON.parse(stored) as AccountRecord[]).map(sanitizeAccount)
     // Seed from existing account settings on first run (migration path)
     const s = getAccountSettings()
     const seed: AccountRecord = {
@@ -272,9 +285,9 @@ export function getAccounts(): AccountRecord[] {
       name: s.name || 'Main Account',
       broker: '',
       currency: 'USD',
-      startingBalance: s.startingBalance,
-      maxRiskPct: s.maxRiskPct,
-      maxDailyLossPct: s.maxDailyLossPct,
+      startingBalance: s.startingBalance ?? 10000,
+      maxRiskPct: s.maxRiskPct ?? 1,
+      maxDailyLossPct: s.maxDailyLossPct ?? 3,
       created_at: new Date().toISOString(),
     }
     localStorage.setItem(ACCOUNTS_KEY, JSON.stringify([seed]))
