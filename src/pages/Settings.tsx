@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
-  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil,
+  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell,
 } from 'lucide-react'
 import {
   getAccounts, saveAccounts, getActiveAccountId, setActiveAccountId, type AccountRecord,
   saveCalcSettings, getSupabaseConfig, saveSupabaseConfig, getTrades,
-  saveRules, saveChecklistItems,
+  saveRules, saveChecklistItems, getReminderSettings, saveReminderSettings,
 } from '../lib/db'
+import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { loadSampleData } from '../lib/seedData'
 import {
   isSupabaseConfigured, testConnection, getSession,
@@ -214,6 +215,10 @@ export default function Settings() {
   // ── Export / import ──────────────────────────────────────────────────────────
   const importRef = useRef<HTMLInputElement>(null)
 
+  // ── Reminder ──────────────────────────────────────────────────────────────────
+  const [reminder, setReminder] = useState(() => getReminderSettings())
+  const [reminderSaved, setReminderSaved] = useState(false)
+
   // ── Danger zone ──────────────────────────────────────────────────────────────
   const [clearConfirm, setClearConfirm] = useState<'trades' | 'all' | null>(null)
   const [rulesReset, setRulesReset] = useState(false)
@@ -396,6 +401,28 @@ export default function Settings() {
     setTimeout(() => window.location.replace('/'), 1000)
   }
 
+  // ── Reminder handlers ─────────────────────────────────────────────────────────
+
+  function handleSaveReminder(updated: typeof reminder) {
+    saveReminderSettings(updated)
+    setReminder(updated)
+    setReminderSaved(true)
+    setTimeout(() => setReminderSaved(false), 2000)
+  }
+
+  async function handleTestNotification() {
+    let granted = await isPermissionGranted()
+    if (!granted) {
+      const result = await requestPermission()
+      granted = result === 'granted'
+    }
+    if (!granted) return
+    sendNotification({
+      title: 'Pre-Market Reminder',
+      body: 'Complete your pre-market checklist before trading.',
+    })
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   const syncBadge = session ? (
@@ -497,6 +524,57 @@ export default function Settings() {
           The active account's starting balance and risk % are used by the Position Calculator on the trade entry form.
           Hover an account to edit or switch.
         </p>
+      </Section>
+
+      {/* ── Pre-Market Reminder ── */}
+      <Section icon={Bell} title="Pre-Market Reminder">
+        <div className="space-y-4">
+          <p className="text-xs text-text-secondary">
+            Get a system notification at a set time each morning to complete your pre-market checklist before trading.
+          </p>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-text-primary">Enable reminder</span>
+            <button
+              onClick={() => handleSaveReminder({ ...reminder, enabled: !reminder.enabled })}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${reminder.enabled ? 'bg-accent' : 'bg-gray-600'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${reminder.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+          <div className="flex items-center gap-4">
+            <div>
+              <label className="text-xs text-text-secondary block mb-1">Reminder time</label>
+              <input
+                type="time"
+                value={reminder.time}
+                onChange={e => setReminder(r => ({ ...r, time: e.target.value }))}
+                onBlur={() => handleSaveReminder(reminder)}
+                className="input text-sm font-mono w-32"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-4">
+              <input
+                id="weekdays-only"
+                type="checkbox"
+                checked={reminder.weekdaysOnly}
+                onChange={e => handleSaveReminder({ ...reminder, weekdaysOnly: e.target.checked })}
+                className="accent-accent"
+              />
+              <label htmlFor="weekdays-only" className="text-sm text-text-secondary select-none cursor-pointer">
+                Weekdays only
+              </label>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { void handleTestNotification() }}
+              className="btn-secondary text-xs flex items-center gap-1.5"
+            >
+              <Bell size={12} /> Test Notification
+            </button>
+            {reminderSaved && <span className="flex items-center gap-1 text-xs text-profit"><Check size={12} /> Saved</span>}
+          </div>
+        </div>
       </Section>
 
       {/* ── Cloud Sync ── */}

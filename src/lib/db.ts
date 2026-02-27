@@ -245,6 +245,32 @@ export function saveSupabaseConfig(config: SupabaseConfig | null): void {
   else localStorage.removeItem(SUPABASE_CONFIG_KEY)
 }
 
+// ── Pre-market reminder settings ───────────────────────────────────────────────
+const REMINDER_KEY = 'tj_reminder'
+
+export interface ReminderSettings {
+  enabled: boolean
+  time: string   // "HH:MM" 24-hour
+  weekdaysOnly: boolean
+}
+
+export function getReminderSettings(): ReminderSettings {
+  try {
+    const raw = JSON.parse(localStorage.getItem(REMINDER_KEY) || '{}') as Partial<ReminderSettings>
+    return {
+      enabled: raw.enabled ?? false,
+      time: raw.time ?? '09:00',
+      weekdaysOnly: raw.weekdaysOnly ?? true,
+    }
+  } catch {
+    return { enabled: false, time: '09:00', weekdaysOnly: true }
+  }
+}
+
+export function saveReminderSettings(s: ReminderSettings): void {
+  localStorage.setItem(REMINDER_KEY, JSON.stringify(s))
+}
+
 // ── Bulk replace trades (used after sync merge) ─────────────────────────────────
 export function replaceTrades(trades: Trade[]): void {
   localStorage.setItem(TRADES_KEY, JSON.stringify(trades))

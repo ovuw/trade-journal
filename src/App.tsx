@@ -11,9 +11,11 @@ import News from "./pages/News";
 import Settings from "./pages/Settings";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { useAutoSync } from "./hooks/useAutoSync";
+import { usePreMarketReminder } from "./hooks/usePreMarketReminder";
 
 function App() {
   useAutoSync();
+  usePreMarketReminder();
   return (
     <>
       <UpdaterDialog />
