@@ -103,6 +103,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const [preview, setPreview] = useState<ParsedTrade[] | null>(null)
   const [parseErrors, setParseErrors] = useState<string[]>([])
   const [skipped, setSkipped] = useState(0)
+  const [detectedFormat, setDetectedFormat] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -112,6 +113,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
     setPreview(result.trades)
     setParseErrors(result.errors)
     setSkipped(result.skipped)
+    setDetectedFormat(result.detectedFormat)
   }
 
   const handleDrop = (e: React.DragEvent) => {
@@ -154,8 +156,10 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
         <div className="p-5 overflow-y-auto flex-1 space-y-4">
           <div className="bg-bg-secondary border border-border rounded-lg p-3 flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm text-text-primary font-medium">Need the format?</p>
-              <p className="text-xs text-text-secondary mt-0.5">Download the CSV template to see expected columns</p>
+              <p className="text-sm text-text-primary font-medium">Supported formats</p>
+              <p className="text-xs text-text-secondary mt-0.5">
+                Tastytrade · TD Ameritrade · IBKR · or use the Trade Journal template
+              </p>
             </div>
             <button
               onClick={() => downloadCsv('trade-journal-template.csv', CSV_TEMPLATE_EXAMPLE)}
@@ -164,6 +168,15 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
               <Download size={12} /> Template
             </button>
           </div>
+
+          {detectedFormat && detectedFormat !== 'Unknown' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-text-secondary">Detected format:</span>
+              <span className="text-xs font-medium text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-full">
+                {detectedFormat}
+              </span>
+            </div>
+          )}
 
           {!preview && (
             <div
@@ -219,7 +232,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                   </tbody>
                 </table>
               </div>
-              <button onClick={() => { setPreview(null); setParseErrors([]) }} className="text-xs text-text-muted hover:text-text-secondary mt-2">
+              <button onClick={() => { setPreview(null); setParseErrors([]); setDetectedFormat(null) }} className="text-xs text-text-muted hover:text-text-secondary mt-2">
                 ← Choose different file
               </button>
             </div>
