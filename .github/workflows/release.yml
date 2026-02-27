@@ -54,3 +54,41 @@ jobs:
           releaseBody: "See the release assets below to download and install this version."
           releaseDraft: false
           prerelease: false
+
+      - name: Upload updater JSON (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os
+          from datetime import datetime, timezone
+
+          with open('src-tauri/tauri.conf.json') as f:
+              version = json.load(f)['version']
+
+          sig_path = 'src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz.sig'
+          with open(sig_path) as f:
+              sig = f.read().strip()
+
+          tag = os.environ['GITHUB_REF_NAME']
+
+          data = {
+              'version': version,
+              'notes': 'Bug fixes and improvements.',
+              'pub_date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'platforms': {
+                  'darwin-aarch64': {
+                      'signature': sig,
+                      'url': f'https://github.com/ovuw/trade-journal/releases/download/{tag}/Trade.Journal_aarch64.app.tar.gz'
+                  }
+              }
+          }
+
+          with open('latest.json', 'w') as f:
+              json.dump(data, f, indent=2)
+
+          print(json.dumps(data, indent=2))
+          PYEOF
+
+          gh release upload "${{ github.ref_name }}" latest.json --clobber
