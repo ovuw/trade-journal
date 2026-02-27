@@ -9,7 +9,21 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ github.ref_name }}" 2>/dev/null || \
+          gh release create "${{ github.ref_name }}" \
+            --title "Trade Journal ${{ github.ref_name }}" \
+            --notes "Bug fixes and improvements."
+
+  build:
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
@@ -20,7 +34,7 @@ jobs:
             label: Windows
 
     runs-on: ${{ matrix.os }}
-    name: Release ${{ matrix.label }}
+    name: Build ${{ matrix.label }}
 
     steps:
       - uses: actions/checkout@v4
@@ -42,24 +56,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish release
-        uses: tauri-apps/tauri-action@v0
+      - name: Build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Trade Journal ${{ github.ref_name }}"
-          releaseBody: "See the release assets below to download and install this version."
-          releaseDraft: false
-          prerelease: false
+        run: npm run tauri build
 
-      - name: Upload updater JSON (macOS)
+      - name: Upload macOS artifacts + latest.json
         if: matrix.os == 'macos-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(node -e "const c=require('./src-tauri/tauri.conf.json');console.log(c.version)")
+
+          gh release upload "$TAG" \
+            "src-tauri/target/release/bundle/dmg/Trade Journal_${VERSION}_aarch64.dmg" \
+            --clobber
+
+          gh release upload "$TAG" \
+            "src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz" \
+            --clobber
+
           python3 << 'PYEOF'
           import json, os
           from datetime import datetime, timezone
@@ -67,8 +85,7 @@ jobs:
           with open('src-tauri/tauri.conf.json') as f:
               version = json.load(f)['version']
 
-          sig_path = 'src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz.sig'
-          with open(sig_path) as f:
+          with open('src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz.sig') as f:
               sig = f.read().strip()
 
           tag = os.environ['GITHUB_REF_NAME']
@@ -80,7 +97,7 @@ jobs:
               'platforms': {
                   'darwin-aarch64': {
                       'signature': sig,
-                      'url': f'https://github.com/ovuw/trade-journal/releases/download/{tag}/Trade.Journal_aarch64.app.tar.gz'
+                      'url': f'https://github.com/ovuw/trade-journal/releases/download/{tag}/Trade%20Journal.app.tar.gz'
                   }
               }
           }
@@ -91,4 +108,21 @@ jobs:
           print(json.dumps(data, indent=2))
           PYEOF
 
-          gh release upload "${{ github.ref_name }}" latest.json --clobber
+          gh release upload "$TAG" latest.json --clobber
+
+      - name: Upload Windows artifacts
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION=$(node -e "const c=require('./src-tauri/tauri.conf.json');console.log(c.version)")
+
+          gh release upload "$TAG" \
+            "src-tauri/target/release/bundle/nsis/Trade Journal_${VERSION}_x64-setup.exe" \
+            --clobber
+
+          gh release upload "$TAG" \
+            "src-tauri/target/release/bundle/msi/Trade Journal_${VERSION}_x64_en-US.msi" \
+            --clobber
