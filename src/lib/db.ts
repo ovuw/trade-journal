@@ -57,6 +57,30 @@ export function deleteScreenshot(tradeId: string): void {
   localStorage.removeItem(`tj_screenshot_${tradeId}`)
 }
 
+// Multiple screenshots per trade (up to 5)
+const MAX_SCREENSHOTS = 5
+
+export function getScreenshots(tradeId: string): string[] {
+  try {
+    const multi = localStorage.getItem(`tj_screenshots_${tradeId}`)
+    if (multi) return JSON.parse(multi) as string[]
+    // Fall back to legacy single screenshot
+    const single = localStorage.getItem(`tj_screenshot_${tradeId}`)
+    return single ? [single] : []
+  } catch {
+    return []
+  }
+}
+
+export function saveScreenshots(tradeId: string, urls: string[]): void {
+  localStorage.setItem(`tj_screenshots_${tradeId}`, JSON.stringify(urls.slice(0, MAX_SCREENSHOTS)))
+}
+
+export function deleteScreenshots(tradeId: string): void {
+  localStorage.removeItem(`tj_screenshots_${tradeId}`)
+  localStorage.removeItem(`tj_screenshot_${tradeId}`)
+}
+
 // Calculator settings
 const CALC_KEY = 'tj_calc_settings'
 export interface CalcSettings { accountBalance: number; maxRiskPct: number }

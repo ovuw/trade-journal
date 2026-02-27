@@ -4,7 +4,7 @@ import { ImagePlus, X, CheckCircle } from 'lucide-react'
 import PositionCalculator from '../components/PositionCalculator'
 import StarRating from '../components/StarRating'
 import MultiTagSelect from '../components/MultiTagSelect'
-import { saveTrade, saveScreenshot, getTradeById, updateTrade, getRules } from '../lib/db'
+import { saveTrade, getTradeById, updateTrade, getRules, getScreenshots, saveScreenshots } from '../lib/db'
 import { getSession } from '../lib/supabase'
 import { uploadTradeScreenshot } from '../lib/storage'
 import {
@@ -130,8 +130,9 @@ export default function NewTrade() {
     return EMPTY_FORM
   })
 
-  const [screenshot, setScreenshot] = useState<File | null>(null)
-  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
+  const [screenshots, setScreenshots] = useState<string[]>(() =>
+    editId ? getScreenshots(editId) : []
+  )
   const [isDragging, setIsDragging] = useState(false)
   const [errors, setErrors] = useState<Partial<Record<keyof TradeFormData, string>>>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -143,19 +144,32 @@ export default function NewTrade() {
     setErrors(prev => ({ ...prev, [key]: undefined }))
   }, [])
 
+  const MAX_SCREENSHOTS = 5
+
   const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) return
-    setScreenshot(file)
+    if (screenshots.length >= MAX_SCREENSHOTS) return
     const reader = new FileReader()
-    reader.onload = e => setScreenshotPreview(e.target?.result as string)
+    reader.onload = e => {
+      const dataUrl = e.target?.result as string
+      setScreenshots(prev => [...prev, dataUrl])
+    }
     reader.readAsDataURL(file)
+  }
+
+  const handleFiles = (files: FileList) => {
+    const remaining = MAX_SCREENSHOTS - screenshots.length
+    Array.from(files).slice(0, remaining).forEach(handleFile)
   }
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
+    if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files)
+  }
+
+  const removeScreenshot = (idx: number) => {
+    setScreenshots(prev => prev.filter((_, i) => i !== idx))
   }
 
   const fillQuantity = (qty: number) => {
@@ -222,10 +236,10 @@ export default function NewTrade() {
           result_pct,
           screenshot_id: null,
         })
-        if (screenshotPreview) {
-          saveScreenshot(editId, screenshotPreview)
+        saveScreenshots(editId, screenshots)
+        if (screenshots[0]) {
           void getSession().then(s => {
-            if (s) void uploadTradeScreenshot(editId, screenshotPreview, s.user.id).then(path => { if (path) updateTrade(editId, { screenshot_id: path }) })
+            if (s) void uploadTradeScreenshot(editId, screenshots[0], s.user.id).then(path => { if (path) updateTrade(editId, { screenshot_id: path }) })
           })
         }
         setSaved(true)
@@ -257,10 +271,10 @@ export default function NewTrade() {
           result_pct,
           screenshot_id: null,
         })
-        if (screenshotPreview) {
-          saveScreenshot(trade.id, screenshotPreview)
+        saveScreenshots(trade.id, screenshots)
+        if (screenshots[0]) {
           void getSession().then(s => {
-            if (s) void uploadTradeScreenshot(trade.id, screenshotPreview, s.user.id).then(path => { if (path) updateTrade(trade.id, { screenshot_id: path }) })
+            if (s) void uploadTradeScreenshot(trade.id, screenshots[0], s.user.id).then(path => { if (path) updateTrade(trade.id, { screenshot_id: path }) })
           })
         }
         setSaved(true)
@@ -575,50 +589,60 @@ export default function NewTrade() {
 
               {/* Screenshot upload */}
               <div>
-                <Label>Chart Screenshot</Label>
-                {screenshotPreview ? (
-                  <div className="relative">
-                    <img
-                      src={screenshotPreview}
-                      alt="Trade screenshot"
-                      className="w-full rounded-lg border border-border object-cover max-h-48"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => { setScreenshot(null); setScreenshotPreview(null) }}
-                      className="absolute top-2 right-2 bg-bg-secondary border border-border rounded-full p-1 hover:bg-bg-hover"
-                    >
-                      <X size={12} className="text-text-secondary" />
-                    </button>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Label>Chart Screenshots</Label>
+                  <span className="text-xs text-text-muted">{screenshots.length}/{MAX_SCREENSHOTS}</span>
+                </div>
+
+                {/* Thumbnail grid */}
+                {screenshots.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    {screenshots.map((src, idx) => (
+                      <div key={idx} className="relative group aspect-video">
+                        <img
+                          src={src}
+                          alt={`Screenshot ${idx + 1}`}
+                          className="w-full h-full object-cover rounded-lg border border-border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeScreenshot(idx)}
+                          className="absolute top-1 right-1 bg-bg-secondary border border-border rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={11} className="text-text-secondary" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                ) : (
+                )}
+
+                {/* Drop zone — hide when at limit */}
+                {screenshots.length < MAX_SCREENSHOTS && (
                   <div
                     onDrop={handleDrop}
                     onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
                     onDragLeave={() => setIsDragging(false)}
                     onClick={() => fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
                       isDragging
                         ? 'border-accent bg-accent/5'
                         : 'border-border hover:border-text-muted hover:bg-bg-hover'
                     }`}
                   >
-                    <ImagePlus size={24} className="text-text-muted mx-auto mb-2" />
+                    <ImagePlus size={20} className="text-text-muted mx-auto mb-2" />
                     <p className="text-sm text-text-secondary">
-                      Drop screenshot here or <span className="text-accent">browse</span>
+                      Drop screenshots here or <span className="text-accent">browse</span>
                     </p>
-                    <p className="text-xs text-text-muted mt-1">PNG, JPG, WebP</p>
+                    <p className="text-xs text-text-muted mt-1">PNG, JPG, WebP · up to {MAX_SCREENSHOTS} images</p>
                     <input
                       ref={fileInputRef}
                       type="file"
                       accept="image/*"
+                      multiple
                       className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+                      onChange={e => { if (e.target.files) handleFiles(e.target.files) }}
                     />
                   </div>
-                )}
-                {screenshot && (
-                  <p className="text-xs text-text-muted mt-1">{screenshot.name}</p>
                 )}
               </div>
             </div>

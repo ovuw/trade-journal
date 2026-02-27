@@ -5,7 +5,7 @@ import {
   Trash2, Pencil, Image, X, AlertTriangle, ChevronRight, ChevronDown as ExpandIcon,
   FileText,
 } from 'lucide-react'
-import { getTrades, deleteTrade, saveTrade, getScreenshot, deleteScreenshot } from '../lib/db'
+import { getTrades, deleteTrade, saveTrade, getScreenshots, deleteScreenshots } from '../lib/db'
 import { getStorageScreenshotUrl } from '../lib/storage'
 import { exportTradesToCsv, downloadCsv, CSV_TEMPLATE_EXAMPLE } from '../lib/csvExport'
 import { parseCsv, type ParsedTrade } from '../lib/csvImport'
@@ -258,7 +258,11 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
 function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
   trade: Trade; colSpan: number; onEdit: () => void; onDelete: () => void
 }) {
-  const screenshot = (trade.screenshot_id ? getStorageScreenshotUrl(trade.screenshot_id) : null) ?? getScreenshot(trade.id)
+  const multiScreenshots = getScreenshots(trade.id)
+  const storageShot = trade.screenshot_id ? getStorageScreenshotUrl(trade.screenshot_id) : null
+  const allScreenshots = storageShot
+    ? [storageShot, ...multiScreenshots.filter(s => s !== storageShot)]
+    : multiScreenshots
   const mistakeTags = getMistakeTags(trade.mistake_tag_ids)
   const rulesBroken = getRuleItems(trade.rules_broken_ids)
 
@@ -266,10 +270,21 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
     <tr className="bg-bg-secondary border-b border-border">
       <td colSpan={colSpan} className="px-5 py-4">
         <div className="flex gap-6">
-          {screenshot && (
+          {allScreenshots.length > 0 && (
             <div className="flex-shrink-0">
-              <p className="text-xs text-text-secondary mb-1.5">Screenshot</p>
-              <img src={screenshot} alt="Trade chart" className="rounded-lg border border-border w-52 object-cover" />
+              <p className="text-xs text-text-secondary mb-1.5">
+                Screenshot{allScreenshots.length > 1 ? 's' : ''}
+              </p>
+              <div className="flex flex-col gap-2">
+                {allScreenshots.map((src, idx) => (
+                  <img
+                    key={idx}
+                    src={src}
+                    alt={`Chart ${idx + 1}`}
+                    className="rounded-lg border border-border w-52 object-cover"
+                  />
+                ))}
+              </div>
             </div>
           )}
           <div className="flex-1 min-w-0 space-y-3">
@@ -367,7 +382,7 @@ export default function TradeLog() {
 
   const handleDelete = () => {
     if (!deleteId) return
-    deleteTrade(deleteId); deleteScreenshot(deleteId)
+    deleteTrade(deleteId); deleteScreenshots(deleteId)
     setAllTrades(getTrades())
     if (expandedId === deleteId) setExpandedId(null)
     setDeleteId(null)
@@ -522,7 +537,7 @@ export default function TradeLog() {
                 const setupTag = getSetupTag(trade.setup_tag_id)
                 const mistakeTags = getMistakeTags(trade.mistake_tag_ids)
                 const rulesBrokenCount = trade.rules_broken_ids.length
-                const hasShot = !!localStorage.getItem(`tj_screenshot_${trade.id}`)
+                const hasShot = getScreenshots(trade.id).length > 0 || !!trade.screenshot_id
                 const isProfit = trade.pnl >= 0
 
                 const mainRow = (

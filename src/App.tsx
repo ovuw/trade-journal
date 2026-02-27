@@ -10,6 +10,7 @@ import Playbook from "./pages/Playbook";
 import News from "./pages/News";
 import Settings from "./pages/Settings";
 import AIAnalysis from "./pages/AIAnalysis";
+import Simulator from "./pages/Simulator";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { useAutoSync } from "./hooks/useAutoSync";
 import { usePreMarketReminder } from "./hooks/usePreMarketReminder";
@@ -32,6 +33,7 @@ function App() {
           <Route path="news" element={<News />} />
           <Route path="settings" element={<Settings />} />
           <Route path="ai-analysis" element={<AIAnalysis />} />
+          <Route path="simulator" element={<Simulator />} />
         </Route>
       </Routes>
     </>

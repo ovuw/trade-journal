@@ -595,6 +595,7 @@ export default function Analytics() {
             </ResponsiveContainer>
             <p className="text-xs text-text-muted mt-1">Based on entry time. Market open 9:30am, close 4pm.</p>
           </Section>
+
         </>
       )}
     </div>

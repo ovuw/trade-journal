@@ -12,8 +12,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { AlertTriangle, ChevronDown, ChevronRight, TrendingDown, Zap } from 'lucide-react'
-import { getTrades, getRules } from '../lib/db'
+import { AlertTriangle, ChevronDown, ChevronRight, TrendingDown, Zap, ClipboardCheck, Trophy } from 'lucide-react'
+import { getTrades, getRules, getChecklistState, getChecklistItems } from '../lib/db'
 import { DEFAULT_MISTAKE_TAGS, Rule, Trade } from '../types'
 
 // ─── Period filter (mirrors Dashboard) ────────────────────────────────────────
@@ -101,6 +101,27 @@ interface EmotionPoint {
   y: number
   ticker: string
   emotion: number
+}
+
+interface ChecklistGroup {
+  label: string
+  dayCount: number
+  tradeCount: number
+  totalPnl: number
+  avgPnl: number
+  winRate: number
+  wins: number
+}
+
+interface ReportCard {
+  period: string
+  trades: number
+  totalPnl: number
+  winRate: number
+  profitFactor: number
+  violationRate: number
+  grade: string
+  gradeColor: string
 }
 
 // ─── Computation helpers ──────────────────────────────────────────────────────
@@ -207,6 +228,137 @@ function groupByWeek(trades: Trade[]): WeekPoint[] {
     })
 }
 
+function computeChecklistAdherence(trades: Trade[]): ChecklistGroup[] {
+  const items = getChecklistItems().filter(i => i.is_active)
+  if (items.length === 0) return []
+
+  // Group trades by day
+  const byDay = new Map<string, Trade[]>()
+  for (const t of trades) {
+    const day = t.entry_time.slice(0, 10)
+    const arr = byDay.get(day) ?? []
+    arr.push(t)
+    byDay.set(day, arr)
+  }
+
+  const full: Trade[] = [], partial: Trade[] = [], none: Trade[] = []
+  const fullDays = new Set<string>(), partialDays = new Set<string>(), noneDays = new Set<string>()
+
+  for (const [day, dayTrades] of byDay) {
+    const state = getChecklistState(day)
+    const completed = items.filter(i => state[i.id]).length
+    const pct = items.length > 0 ? completed / items.length : 0
+
+    if (pct >= 1) { full.push(...dayTrades); fullDays.add(day) }
+    else if (pct > 0) { partial.push(...dayTrades); partialDays.add(day) }
+    else { none.push(...dayTrades); noneDays.add(day) }
+  }
+
+  function makeGroup(label: string, ts: Trade[], dayCount: number): ChecklistGroup {
+    const wins = ts.filter(t => t.pnl > 0)
+    const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
+    return {
+      label,
+      dayCount,
+      tradeCount: ts.length,
+      totalPnl,
+      avgPnl: ts.length > 0 ? totalPnl / ts.length : 0,
+      winRate: ts.length > 0 ? (wins.length / ts.length) * 100 : 0,
+      wins: wins.length,
+    }
+  }
+
+  return [
+    makeGroup('Full Checklist', full, fullDays.size),
+    makeGroup('Partial Checklist', partial, partialDays.size),
+    makeGroup('No Checklist', none, noneDays.size),
+  ].filter(g => g.tradeCount > 0)
+}
+
+function computeGrade(winRate: number, profitFactor: number, violationRate: number): { grade: string; color: string } {
+  let score = 0
+  // Win rate contribution (40-70% range)
+  if (winRate >= 60) score += 3
+  else if (winRate >= 50) score += 2
+  else if (winRate >= 40) score += 1
+
+  // Profit factor contribution
+  if (profitFactor >= 2) score += 3
+  else if (profitFactor >= 1.5) score += 2
+  else if (profitFactor >= 1) score += 1
+
+  // Rule compliance (lower violation rate is better)
+  if (violationRate <= 10) score += 3
+  else if (violationRate <= 25) score += 2
+  else if (violationRate <= 50) score += 1
+
+  if (score >= 8) return { grade: 'A', color: 'text-profit' }
+  if (score >= 6) return { grade: 'B', color: 'text-accent' }
+  if (score >= 4) return { grade: 'C', color: 'text-warning' }
+  if (score >= 2) return { grade: 'D', color: 'text-loss/70' }
+  return { grade: 'F', color: 'text-loss' }
+}
+
+function computeReportCard(allTrades: Trade[]): ReportCard[] {
+  const today = new Date()
+  const cards: ReportCard[] = []
+
+  function cardFor(label: string, ts: Trade[]): ReportCard | null {
+    if (ts.length === 0) return null
+    const wins = ts.filter(t => t.pnl > 0)
+    const losses = ts.filter(t => t.pnl < 0)
+    const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
+    const winRate = (wins.length / ts.length) * 100
+    const grossWin = wins.reduce((s, t) => s + t.pnl, 0)
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0))
+    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 999 : 0
+    const tradesWith = ts.filter(t => (t.rules_broken_ids || []).length > 0).length
+    const violationRate = ts.length > 0 ? (tradesWith / ts.length) * 100 : 0
+    const { grade, color } = computeGrade(winRate, profitFactor, violationRate)
+    return { period: label, trades: ts.length, totalPnl, winRate, profitFactor, violationRate, grade, gradeColor: color }
+  }
+
+  // This week
+  const dow = today.getDay()
+  const mondayOffset = dow === 0 ? -6 : 1 - dow
+  const monday = new Date(today)
+  monday.setDate(today.getDate() + mondayOffset)
+  monday.setHours(0, 0, 0, 0)
+  const lastMonday = new Date(monday)
+  lastMonday.setDate(monday.getDate() - 7)
+
+  const thisWeekStr = monday.toISOString().split('T')[0]
+  const lastWeekStr = lastMonday.toISOString().split('T')[0]
+  const todayStr = today.toISOString().split('T')[0]
+
+  const thisWeekTrades = allTrades.filter(t => t.entry_time.slice(0, 10) >= thisWeekStr)
+  const lastWeekTrades = allTrades.filter(t => {
+    const d = t.entry_time.slice(0, 10)
+    return d >= lastWeekStr && d < thisWeekStr
+  })
+
+  // This month
+  const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
+  const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const lastMonthStart = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}-01`
+  const thisMonthTrades = allTrades.filter(t => t.entry_time.slice(0, 10) >= monthStart && t.entry_time.slice(0, 10) <= todayStr)
+  const lastMonthTrades = allTrades.filter(t => {
+    const d = t.entry_time.slice(0, 10)
+    return d >= lastMonthStart && d < monthStart
+  })
+
+  const thisWeek = cardFor('This Week', thisWeekTrades)
+  const lastWeek = cardFor('Last Week', lastWeekTrades)
+  const thisMonth = cardFor('This Month', thisMonthTrades)
+  const lastMonth = cardFor('Last Month', lastMonthTrades)
+
+  if (thisWeek) cards.push(thisWeek)
+  if (lastWeek) cards.push(lastWeek)
+  if (thisMonth) cards.push(thisMonth)
+  if (lastMonth) cards.push(lastMonth)
+  return cards
+}
+
 function buildEmotionScatter(trades: Trade[]): EmotionPoint[] {
   return trades
     .filter(t => t.emotion_entry > 0)
@@ -290,6 +442,8 @@ export default function Review() {
   const mistakeStats = useMemo(() => computeMistakeStats(filtered), [filtered])
   const weeklyTrend = useMemo(() => groupByWeek(allTrades), [allTrades]) // always all-time for trend
   const emotionScatter = useMemo(() => buildEmotionScatter(filtered), [filtered])
+  const checklistAdherence = useMemo(() => computeChecklistAdherence(filtered), [filtered])
+  const reportCards = useMemo(() => computeReportCard(allTrades), [allTrades])
 
   const wins = filtered.filter(t => t.pnl > 0)
   const losses = filtered.filter(t => t.pnl <= 0)
@@ -685,7 +839,147 @@ export default function Review() {
               </>
             )}
           </Section>
+
+          {/* ════════════════════════════════════
+              Checklist Adherence Analysis
+          ════════════════════════════════════ */}
+          <Section
+            title="Checklist Adherence vs Performance"
+            sub="Do you trade better on days you complete your pre-market checklist?"
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <ClipboardCheck size={15} className="text-accent" />
+              <span className="text-xs text-text-muted">Compares trading days by checklist completion in the selected period</span>
+            </div>
+            {checklistAdherence.length === 0 ? (
+              <Empty message="No checklist data found. Complete your pre-market checklist on the Dashboard to see this analysis." />
+            ) : (
+              <>
+                <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${checklistAdherence.length}, 1fr)` }}>
+                  {checklistAdherence.map(group => (
+                    <div
+                      key={group.label}
+                      className={`rounded-lg p-4 border ${
+                        group.label === 'Full Checklist'
+                          ? 'border-profit/30 bg-profit/5'
+                          : group.label === 'Partial Checklist'
+                          ? 'border-warning/30 bg-warning/5'
+                          : 'border-loss/30 bg-loss/5'
+                      }`}
+                    >
+                      <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${
+                        group.label === 'Full Checklist' ? 'text-profit'
+                        : group.label === 'Partial Checklist' ? 'text-warning'
+                        : 'text-loss'
+                      }`}>
+                        {group.label}
+                      </p>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-text-muted text-xs">Trading days</span>
+                          <span className="font-mono text-text-primary">{group.dayCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted text-xs">Trades</span>
+                          <span className="font-mono text-text-primary">{group.tradeCount}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted text-xs">Win Rate</span>
+                          <span className={`font-mono ${group.winRate >= 50 ? 'text-profit' : 'text-loss'}`}>
+                            {group.winRate.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted text-xs">Avg P/L</span>
+                          <span className={`font-mono font-semibold ${group.avgPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {group.avgPnl >= 0 ? '+' : ''}${group.avgPnl.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-text-muted text-xs">Total P/L</span>
+                          <span className={`font-mono font-semibold ${group.totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                            {group.totalPnl >= 0 ? '+' : ''}${group.totalPnl.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {checklistAdherence.length >= 2 && (() => {
+                  const full = checklistAdherence.find(g => g.label === 'Full Checklist')
+                  const noCheck = checklistAdherence.find(g => g.label === 'No Checklist')
+                  if (!full || !noCheck) return null
+                  const diff = full.avgPnl - noCheck.avgPnl
+                  return (
+                    <p className={`text-xs mt-3 ${diff > 0 ? 'text-profit' : 'text-text-muted'}`}>
+                      {diff > 0
+                        ? `When you complete your checklist, your avg trade is $${Math.abs(diff).toFixed(2)} better than days you skip it.`
+                        : 'Not enough contrast yet — keep logging checklist completions to see the pattern.'}
+                    </p>
+                  )
+                })()}
+              </>
+            )}
+          </Section>
         </>
+      )}
+
+      {/* ════════════════════════════════════
+          Report Card (always visible, not period-filtered)
+      ════════════════════════════════════ */}
+      {reportCards.length > 0 && (
+        <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+            <Trophy size={15} className="text-accent" />
+            <h2 className="text-base font-semibold text-text-primary">Performance Report Card</h2>
+            <span className="text-xs text-text-muted ml-1">Graded on win rate, profit factor &amp; rule compliance</span>
+          </div>
+          <div className="p-5">
+            <div className="grid grid-cols-2 gap-4">
+              {reportCards.map(card => (
+                <div key={card.period} className="bg-bg-secondary rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold text-text-primary">{card.period}</span>
+                    <span className={`text-3xl font-black ${card.gradeColor}`}>{card.grade}</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Trades</span>
+                      <span className="font-mono text-text-primary">{card.trades}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Total P/L</span>
+                      <span className={`font-mono font-semibold ${card.totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>
+                        {card.totalPnl >= 0 ? '+' : ''}${card.totalPnl.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Win Rate</span>
+                      <span className={`font-mono ${card.winRate >= 50 ? 'text-profit' : 'text-loss'}`}>
+                        {card.winRate.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Profit Factor</span>
+                      <span className={`font-mono ${card.profitFactor >= 1 ? 'text-profit' : 'text-loss'}`}>
+                        {card.profitFactor >= 999 ? '∞' : card.profitFactor.toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Violation Rate</span>
+                      <span className={`font-mono ${card.violationRate <= 25 ? 'text-profit' : card.violationRate <= 50 ? 'text-warning' : 'text-loss'}`}>
+                        {card.violationRate.toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-text-muted mt-3">
+              Grade: A = excellent (win rate 60%+, PF 2+, violations &lt;10%) · F = needs immediate attention. Always uses all-time data.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   )
