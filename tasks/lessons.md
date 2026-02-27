@@ -1,0 +1,38 @@
+# Lessons
+
+## Dashboard / UI State
+
+### Mistake:
+Assumed a UI widget (pre-market checklist on Dashboard) was reading from localStorage because a `saveChecklistItems()` function existed. It was actually a hardcoded constant `CHECKLIST_ITEMS` at the top of `Dashboard.tsx` — completely disconnected from the db layer.
+
+### Rule:
+Before wiring up a reset/update flow for any data, grep the consuming component for where it actually reads that data. Never assume it reads from the db layer — verify it.
+
+### Why:
+The reset button saved correctly to localStorage, but the dashboard never read from localStorage for that widget. The bug was invisible until the user tested it.
+
+---
+
+## Navigation After Mutations
+
+### Mistake:
+Using `window.location.reload()` after data mutations on non-root routes (e.g. `/settings`) causes a blank page in Tauri + BrowserRouter because Tauri's file server only serves `index.html` at `/`.
+
+### Rule:
+Always use `window.location.replace('/')` after any mutation that requires a full page reload. Never use `window.location.reload()`.
+
+### Why:
+BrowserRouter routes are virtual — Tauri can't serve `/settings` as a real file. `reload()` re-requests the current path from the file server, which 404s. `replace('/')` navigates to root where `index.html` exists.
+
+---
+
+## localStorage Data Integrity
+
+### Mistake:
+`JSON.parse(localStorage.getItem(key) || '{}') as SomeType` silently returns `{}` when storage is empty, then casts it as the full type. Any numeric field will be `undefined`, crashing renders that call `.toLocaleString()` or arithmetic on them.
+
+### Rule:
+Always use `Partial<T>` when parsing from localStorage, then apply `?? default` for every field. Also apply defensive `?? default` at the render site for numeric values.
+
+### Why:
+TypeScript's `as` cast is a lie at runtime — it doesn't validate the shape. `{}` cast as `{ accountBalance: number }` gives `undefined` for `accountBalance`, which crashes silently downstream.

@@ -245,6 +245,18 @@ export function saveSupabaseConfig(config: SupabaseConfig | null): void {
   else localStorage.removeItem(SUPABASE_CONFIG_KEY)
 }
 
+// ── Anthropic API key ──────────────────────────────────────────────────────────
+const ANTHROPIC_KEY = 'tj_anthropic_key'
+
+export function getAnthropicKey(): string {
+  return localStorage.getItem(ANTHROPIC_KEY) ?? ''
+}
+
+export function saveAnthropicKey(key: string): void {
+  if (key) localStorage.setItem(ANTHROPIC_KEY, key)
+  else localStorage.removeItem(ANTHROPIC_KEY)
+}
+
 // ── Pre-market reminder settings ───────────────────────────────────────────────
 const REMINDER_KEY = 'tj_reminder'
 

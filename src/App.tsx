@@ -9,6 +9,7 @@ import Journal from "./pages/Journal";
 import Playbook from "./pages/Playbook";
 import News from "./pages/News";
 import Settings from "./pages/Settings";
+import AIAnalysis from "./pages/AIAnalysis";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { useAutoSync } from "./hooks/useAutoSync";
 import { usePreMarketReminder } from "./hooks/usePreMarketReminder";
@@ -30,6 +31,7 @@ function App() {
           <Route path="playbook" element={<Playbook />} />
           <Route path="news" element={<News />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="ai-analysis" element={<AIAnalysis />} />
         </Route>
       </Routes>
     </>

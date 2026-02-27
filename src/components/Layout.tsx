@@ -12,6 +12,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Sparkles,
 } from "lucide-react";
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { path: "/journal", icon: BookOpen, label: "Journal", end: false },
   { path: "/playbook", icon: BookMarked, label: "Playbook", end: false },
   { path: "/news", icon: Newspaper, label: "News", end: false },
+  { path: "/ai-analysis", icon: Sparkles, label: "AI Analysis", end: false },
 ];
 
 export default function Layout() {

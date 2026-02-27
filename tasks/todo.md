@@ -315,8 +315,15 @@ Start with Phase 1 → 3 → 4 → 5 → 6 → 7 → 2 → 8 → 9 → 10 → 11
 - Support partial fills via executions table (trade has many executions)
 
 ## Notes for Next Agent
-- User's Notion columns: Pair, Date, Direction, Size, Entry $, Exit $, P/L, Result %, Screenshot, Trade Note
-- User's pre-market checklist (already defined in Notion): Check the news, Review trading plan, Analyze the market, Spot entry and exit points, Calculate risk-reward, Set stop loss and take profit
-- User mostly trades stocks, long direction, but build for all asset classes
-- Images/assets go in: `/Users/ryanjones/Desktop/Claude Code/`
-- When you start a session, read this file + `/Users/ryanjones/.claude/projects/-Users-ryanjones/memory/MEMORY.md`
+- User trades stocks, long only, using Kullamägi (Qullamaggie) methodology
+- User's shared folder for images/assets: `/Users/ryanjones/Desktop/Claude Code/`
+- When you start a session, read this file + `tasks/lessons.md` + `/Users/ryanjones/.claude/projects/-Users-ryanjones/memory/MEMORY.md`
+- 12 custom trading rules + 8-step morning checklist are in `src/types/index.ts` → `DEFAULT_RULES` and `DEFAULT_CHECKLIST_LABELS`
+- "Reset Rules & Checklist" button in Settings keeps these up to date without wiping trade data
+- Dashboard checklist reads from `getChecklistItems()` in db.ts — NOT a hardcoded constant (was fixed)
+
+## Pending Work
+- **Auto-updater** (next priority): Tauri built-in updater via GitHub Releases
+  - Needs: signing key pair, `tauri.conf.json` updater config, GitHub Actions release workflow (trigger on version tag), frontend update-check on launch
+  - Tauri v2 docs: https://v2.tauri.app/plugin/updater/
+  - User wants: push a git tag → CI builds + publishes → users get an in-app update prompt
