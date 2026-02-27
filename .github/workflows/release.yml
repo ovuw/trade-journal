@@ -66,17 +66,28 @@ jobs:
         if: matrix.os == 'macos-latest'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           TAG="${{ github.ref_name }}"
           VERSION=$(node -e "const c=require('./src-tauri/tauri.conf.json');console.log(c.version)")
+          BUNDLE_MACOS="src-tauri/target/release/bundle/macos"
+          BUNDLE_DMG="src-tauri/target/release/bundle/dmg"
 
-          # Copy files to /tmp with no spaces in filenames (gh CLI chokes on spaces in globs)
+          # tauri build only produces .app and .dmg — create the updater tar.gz manually
+          tar -czf "$BUNDLE_MACOS/Trade Journal.app.tar.gz" \
+            -C "$BUNDLE_MACOS" "Trade Journal.app"
+
+          # Sign it — tauri signer reads TAURI_SIGNING_PRIVATE_KEY + PASSWORD from env
+          npx tauri signer sign "$BUNDLE_MACOS/Trade Journal.app.tar.gz"
+
+          # Copy to /tmp with no spaces in filenames (gh CLI chokes on spaces in globs)
           mkdir -p /tmp/release
-          cp "src-tauri/target/release/bundle/dmg/Trade Journal_${VERSION}_aarch64.dmg" \
+          cp "$BUNDLE_DMG/Trade Journal_${VERSION}_aarch64.dmg" \
             "/tmp/release/Trade.Journal_${VERSION}_aarch64.dmg"
-          cp "src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz" \
+          cp "$BUNDLE_MACOS/Trade Journal.app.tar.gz" \
             "/tmp/release/Trade.Journal_aarch64.app.tar.gz"
-          cp "src-tauri/target/release/bundle/macos/Trade Journal.app.tar.gz.sig" \
+          cp "$BUNDLE_MACOS/Trade Journal.app.tar.gz.sig" \
             "/tmp/release/Trade.Journal_aarch64.app.tar.gz.sig"
 
           gh release upload "$TAG" "/tmp/release/Trade.Journal_${VERSION}_aarch64.dmg" --clobber
