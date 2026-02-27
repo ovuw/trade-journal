@@ -1,6 +1,6 @@
 {
   "productName": "Trade Journal",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "identifier": "com.tradejournal.app",
   "build": {
     "frontendDist": "../dist",

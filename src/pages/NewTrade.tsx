@@ -1,20 +1,34 @@
-import { useState, useRef, useCallback, useMemo } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ImagePlus, X, CheckCircle } from 'lucide-react'
 import PositionCalculator from '../components/PositionCalculator'
 import StarRating from '../components/StarRating'
 import MultiTagSelect from '../components/MultiTagSelect'
-import { saveTrade, getTradeById, updateTrade, getRules, getScreenshots, saveScreenshots } from '../lib/db'
+import { saveTrade, getTradeById, updateTrade, getRules, getScreenshots, saveScreenshots, getSetupTags, getMistakeTags, getNoteTemplate } from '../lib/db'
 import { compressImage } from '../lib/imageUtils'
 import { getSession } from '../lib/supabase'
 import { uploadTradeScreenshot } from '../lib/storage'
+import { pushTrade } from '../lib/sync'
 import {
-  DEFAULT_SETUP_TAGS,
-  DEFAULT_MISTAKE_TAGS,
   type TradeFormData,
   type Direction,
   type AssetClass,
+  type TradingSession,
 } from '../types'
+
+function detectSession(entryTime: string): TradingSession | undefined {
+  // entryTime is local datetime-local string: YYYY-MM-DDTHH:MM
+  const parts = entryTime.split('T')
+  if (parts.length < 2) return undefined
+  const [hStr, mStr] = parts[1].split(':')
+  const h = parseInt(hStr, 10)
+  const m = parseInt(mStr, 10)
+  const mins = h * 60 + m
+  if (mins >= 4 * 60 && mins < 9 * 60 + 30) return 'pre-market'
+  if (mins >= 9 * 60 + 30 && mins < 16 * 60) return 'rth'
+  if (mins >= 16 * 60 && mins <= 20 * 60) return 'after-hours'
+  return undefined
+}
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
 
@@ -24,25 +38,27 @@ function nowLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-const EMPTY_FORM: TradeFormData = {
-  ticker: '',
-  direction: 'long',
-  asset_class: 'stock',
-  entry_price: '',
-  exit_price: '',
-  stop_price: '',
-  target_price: '',
-  quantity: '',
-  fees: '',
-  entry_time: nowLocal(),
-  exit_time: nowLocal(),
-  setup_tag_id: '',
-  mistake_tag_ids: [],
-  rules_broken_ids: [],
-  emotion_entry: 0,
-  emotion_exit: 0,
-  confidence: 0,
-  notes: '',
+function makeEmptyForm(): TradeFormData {
+  return {
+    ticker: '',
+    direction: 'long',
+    asset_class: 'stock',
+    entry_price: '',
+    exit_price: '',
+    stop_price: '',
+    target_price: '',
+    quantity: '',
+    fees: '',
+    entry_time: nowLocal(),
+    exit_time: nowLocal(),
+    setup_tag_id: '',
+    mistake_tag_ids: [],
+    rules_broken_ids: [],
+    emotion_entry: 0,
+    emotion_exit: 0,
+    confidence: 0,
+    notes: getNoteTemplate(),
+  }
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -128,7 +144,7 @@ export default function NewTrade() {
         }
       }
     }
-    return EMPTY_FORM
+    return makeEmptyForm()
   })
 
   const [screenshots, setScreenshots] = useState<string[]>(() =>
@@ -237,13 +253,16 @@ export default function NewTrade() {
           pnl,
           result_pct,
           screenshot_id: null,
+          session: detectSession(form.entry_time),
         })
         saveScreenshots(editId, screenshots)
-        if (screenshots[0]) {
-          void getSession().then(s => {
-            if (s) void uploadTradeScreenshot(editId, screenshots[0], s.user.id).then(path => { if (path) updateTrade(editId, { screenshot_id: path }) })
-          })
-        }
+        void getSession().then(s => {
+          if (s) {
+            const updated = getTradeById(editId)
+            if (updated) void pushTrade(updated, s.user.id)
+            if (screenshots[0]) void uploadTradeScreenshot(editId, screenshots[0], s.user.id).then(path => { if (path) updateTrade(editId, { screenshot_id: path }) })
+          }
+        })
         setSaved(true)
         setTimeout(() => navigate('/trade-log'), 800)
       } else {
@@ -272,13 +291,15 @@ export default function NewTrade() {
           pnl,
           result_pct,
           screenshot_id: null,
+          session: detectSession(form.entry_time),
         })
         saveScreenshots(trade.id, screenshots)
-        if (screenshots[0]) {
-          void getSession().then(s => {
-            if (s) void uploadTradeScreenshot(trade.id, screenshots[0], s.user.id).then(path => { if (path) updateTrade(trade.id, { screenshot_id: path }) })
-          })
-        }
+        void getSession().then(s => {
+          if (s) {
+            void pushTrade(trade, s.user.id)
+            if (screenshots[0]) void uploadTradeScreenshot(trade.id, screenshots[0], s.user.id).then(path => { if (path) updateTrade(trade.id, { screenshot_id: path }) })
+          }
+        })
         setSaved(true)
         setTimeout(() => navigate('/trade-log'), 800)
       }
@@ -288,10 +309,24 @@ export default function NewTrade() {
   }
 
   const activeRules = useMemo(() => getRules().filter(r => r.is_active), [])
+  const setupTagOptions = useMemo(() => getSetupTags(), [])
+  const mistakeTagOptions = useMemo(() => getMistakeTags(), [])
 
   const entryNum = parseFloat(form.entry_price) || null
   const stopNum = parseFloat(form.stop_price) || null
   const targetNum = parseFloat(form.target_price) || null
+
+  // Cmd+S keyboard shortcut support
+  useEffect(() => {
+    const handler = () => {
+      const fakeEvent = { preventDefault: () => {} } as React.FormEvent
+      handleSubmit(fakeEvent)
+    }
+    window.addEventListener('trade:save', handler)
+    return () => window.removeEventListener('trade:save', handler)
+  // handleSubmit is stable (closure over form/errors state) — re-register when form changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form])
 
   if (saved) {
     return (
@@ -528,7 +563,7 @@ export default function NewTrade() {
                   className="input text-sm"
                 >
                   <option value="">— Select setup —</option>
-                  {DEFAULT_SETUP_TAGS.map(t => (
+                  {setupTagOptions.map(t => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
@@ -537,7 +572,7 @@ export default function NewTrade() {
               {/* Mistake tags */}
               <MultiTagSelect
                 label="Mistake Tags"
-                options={DEFAULT_MISTAKE_TAGS}
+                options={mistakeTagOptions}
                 selected={form.mistake_tag_ids}
                 onChange={v => update('mistake_tag_ids', v)}
               />
@@ -545,7 +580,7 @@ export default function NewTrade() {
               {/* Rules broken */}
               <MultiTagSelect
                 label="Rules Broken"
-                options={activeRules.map(r => ({ id: r.id, name: r.name, color: '#ff4d4d' }))}
+                options={activeRules.map(r => ({ id: r.id, name: r.name, color: '#ef4444' }))}
                 selected={form.rules_broken_ids}
                 onChange={v => update('rules_broken_ids', v)}
               />
