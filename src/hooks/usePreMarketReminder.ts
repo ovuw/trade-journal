@@ -16,9 +16,9 @@ async function checkAndFire() {
   const [hours, minutes] = settings.time.split(':').map(Number)
   if (now.getHours() !== hours || now.getMinutes() !== minutes) return
 
-  // Fire at most once per day
-  const todayKey = now.toISOString().slice(0, 10)
-  if (localStorage.getItem(LAST_FIRED_KEY) === todayKey) return
+  // Fire at most once per hour:minute slot per day
+  const slotKey = `${now.toISOString().slice(0, 10)}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+  if (localStorage.getItem(LAST_FIRED_KEY) === slotKey) return
 
   let granted = await isPermissionGranted()
   if (!granted) {
@@ -27,7 +27,7 @@ async function checkAndFire() {
   }
   if (!granted) return
 
-  localStorage.setItem(LAST_FIRED_KEY, todayKey)
+  localStorage.setItem(LAST_FIRED_KEY, slotKey)
   sendNotification({
     title: 'Pre-Market Reminder',
     body: 'Complete your pre-market checklist before trading.',

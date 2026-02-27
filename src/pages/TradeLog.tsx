@@ -5,14 +5,17 @@ import {
   Trash2, Pencil, Image, X, AlertTriangle, ChevronRight, ChevronDown as ExpandIcon,
   FileText,
 } from 'lucide-react'
-import { getTrades, deleteTrade, saveTrade, getScreenshots, deleteScreenshots } from '../lib/db'
-import { getStorageScreenshotUrl } from '../lib/storage'
+import { getTrades, deleteTrade, deleteTrades, saveTrade, getScreenshots, deleteScreenshots, getSetupTags, getMistakeTags } from '../lib/db'
+import { getStorageScreenshotUrl, deleteStorageScreenshot } from '../lib/storage'
 import { exportTradesToCsv, downloadCsv, CSV_TEMPLATE_EXAMPLE } from '../lib/csvExport'
 import { parseCsv, type ParsedTrade } from '../lib/csvImport'
 import {
-  DEFAULT_SETUP_TAGS, DEFAULT_MISTAKE_TAGS, DEFAULT_RULES,
+  DEFAULT_RULES,
   type Trade, type Direction,
 } from '../types'
+
+const SETUP_TAGS = getSetupTags()
+const MISTAKE_TAGS = getMistakeTags()
 
 const PAGE_SIZE = 25
 
@@ -47,9 +50,9 @@ function fmtDate(iso: string) {
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
-function getSetupTag(id: string) { return DEFAULT_SETUP_TAGS.find(t => t.id === id) }
-function getMistakeTags(ids: string[]) {
-  return ids.map(id => DEFAULT_MISTAKE_TAGS.find(t => t.id === id)).filter((t): t is typeof DEFAULT_MISTAKE_TAGS[0] => Boolean(t))
+function getSetupTag(id: string) { return SETUP_TAGS.find(t => t.id === id) }
+function getTagsByIds(ids: string[]) {
+  return ids.map(id => MISTAKE_TAGS.find(t => t.id === id)).filter((t): t is typeof MISTAKE_TAGS[0] => Boolean(t))
 }
 function getRuleItems(ids: string[]) {
   return ids.map(id => DEFAULT_RULES.find(r => r.id === id)).filter((r): r is typeof DEFAULT_RULES[0] => Boolean(r))
@@ -265,7 +268,7 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
   const allScreenshots = storageShot
     ? [storageShot, ...multiScreenshots.filter(s => s !== storageShot)]
     : multiScreenshots
-  const mistakeTags = getMistakeTags(trade.mistake_tag_ids)
+  const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
   const rulesBroken = getRuleItems(trade.rules_broken_ids)
 
   return (
@@ -347,6 +350,8 @@ export default function TradeLog() {
   const [showImport, setShowImport] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
 
   useEffect(() => { setPage(1) }, [filters, sort])
 
@@ -390,14 +395,43 @@ export default function TradeLog() {
 
   const handleDelete = () => {
     if (!deleteId) return
+    const trade = allTrades.find(t => t.id === deleteId)
     deleteTrade(deleteId); deleteScreenshots(deleteId)
+    if (trade?.screenshot_id) void deleteStorageScreenshot(trade.screenshot_id)
     setAllTrades(getTrades())
     if (expandedId === deleteId) setExpandedId(null)
+    setSelected(prev => { const n = new Set(prev); n.delete(deleteId); return n })
     setDeleteId(null)
   }
 
+  const handleBulkDelete = () => {
+    const ids = [...selected]
+    const trades = allTrades.filter(t => ids.includes(t.id))
+    ids.forEach(id => deleteScreenshots(id))
+    trades.forEach(t => { if (t.screenshot_id) void deleteStorageScreenshot(t.screenshot_id) })
+    deleteTrades(ids)
+    setAllTrades(getTrades())
+    setSelected(new Set())
+    setBulkDeleteConfirm(false)
+    if (expandedId && ids.includes(expandedId)) setExpandedId(null)
+  }
+
+  const toggleSelect = (id: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+
+  const allPageSelected = paginated.length > 0 && paginated.every(t => selected.has(t.id))
+  const somePageSelected = paginated.some(t => selected.has(t.id))
+
+  const toggleSelectAll = () => {
+    if (allPageSelected) {
+      setSelected(prev => { const n = new Set(prev); paginated.forEach(t => n.delete(t.id)); return n })
+    } else {
+      setSelected(prev => { const n = new Set(prev); paginated.forEach(t => n.add(t.id)); return n })
+    }
+  }
+
   const tradeToDelete = deleteId ? allTrades.find(t => t.id === deleteId) : null
-  const COL_SPAN = 13
+  const COL_SPAN = 14
 
   const Th = ({ label, sortKey, className = '' }: { label: string; sortKey?: SortKey; className?: string }) => (
     <th
@@ -478,7 +512,7 @@ export default function TradeLog() {
                 <label className="text-xs text-text-secondary block mb-1">Setup Tag</label>
                 <select value={filters.setupTagId} onChange={e => setFilter('setupTagId', e.target.value)} className="input text-sm">
                   <option value="">All setups</option>
-                  {DEFAULT_SETUP_TAGS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  {SETUP_TAGS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <div>
@@ -505,26 +539,60 @@ export default function TradeLog() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-6 py-2.5 bg-accent/5 border-b border-accent/20 flex-shrink-0">
+          <span className="text-sm text-text-secondary font-medium">{selected.size} selected</span>
+          {bulkDeleteConfirm ? (
+            <>
+              <span className="text-sm text-loss">Delete {selected.size} trade{selected.size !== 1 ? 's' : ''}?</span>
+              <button onClick={handleBulkDelete} className="text-sm text-white bg-loss hover:bg-loss/80 rounded-md px-3 py-1 transition-colors font-medium">Confirm Delete</button>
+              <button onClick={() => setBulkDeleteConfirm(false)} className="btn-secondary text-sm py-1 px-3">Cancel</button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setBulkDeleteConfirm(true)} className="flex items-center gap-1.5 text-sm text-loss border border-loss/30 hover:bg-loss/10 rounded-md px-3 py-1 transition-colors">
+                <Trash2 size={13} /> Delete {selected.size}
+              </button>
+              <button onClick={() => setSelected(new Set())} className="text-xs text-text-muted hover:text-text-primary ml-auto">Clear selection</button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
         {sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-20">
-            <FileText size={40} className="text-text-muted mb-4" />
-            <p className="text-text-primary font-medium text-lg">
-              {hasActiveFilters ? 'No trades match your filters' : 'No trades yet'}
+            <div className="w-16 h-16 rounded-2xl bg-bg-card border border-border flex items-center justify-center mb-5">
+              <FileText size={28} className="text-text-muted" />
+            </div>
+            <p className="text-text-primary font-semibold text-lg">
+              {hasActiveFilters ? 'No trades match your filters' : 'Your trade history lives here'}
             </p>
-            <p className="text-text-secondary text-sm mt-1 mb-5">
-              {hasActiveFilters ? 'Try adjusting or clearing your filters' : 'Log your first trade to get started'}
+            <p className="text-text-secondary text-sm mt-1.5 mb-6 max-w-xs">
+              {hasActiveFilters
+                ? 'Try adjusting or clearing your filters to see more trades.'
+                : 'Log your first trade to start tracking performance and building your edge.'}
             </p>
             {!hasActiveFilters
-              ? <button onClick={() => navigate('/new-trade')} className="btn-primary flex items-center gap-1.5"><Plus size={14} /> New Trade</button>
-              : <button onClick={() => setFilters(DEFAULT_FILTERS)} className="btn-secondary text-sm">Clear filters</button>}
+              ? <button onClick={() => navigate('/new-trade')} className="btn-primary flex items-center gap-1.5"><Plus size={14} /> Log a Trade</button>
+              : <button onClick={() => setFilters(DEFAULT_FILTERS)} className="btn-secondary text-sm">Clear Filters</button>}
           </div>
         ) : (
           <table className="w-full min-w-max border-collapse">
             <thead className="sticky top-0 bg-bg-secondary border-b border-border z-10">
               <tr>
-                <th className="w-8 px-3 py-2.5" />
+                <th className="w-8 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    ref={el => { if (el) el.indeterminate = somePageSelected && !allPageSelected }}
+                    onChange={toggleSelectAll}
+                    className="accent-accent cursor-pointer"
+                  />
+                </th>
+                <th className="w-5 px-1 py-2.5" />
                 <Th label="Ticker" sortKey="ticker" />
                 <Th label="Date" sortKey="entry_time" />
                 <Th label="Dir" />
@@ -543,7 +611,7 @@ export default function TradeLog() {
               {paginated.flatMap(trade => {
                 const isExpanded = expandedId === trade.id
                 const setupTag = getSetupTag(trade.setup_tag_id)
-                const mistakeTags = getMistakeTags(trade.mistake_tag_ids)
+                const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
                 const rulesBrokenCount = trade.rules_broken_ids.length
                 const hasShot = getScreenshots(trade.id).length > 0 || !!trade.screenshot_id
                 const isProfit = trade.pnl >= 0
@@ -554,7 +622,15 @@ export default function TradeLog() {
                     onClick={() => setExpandedId(isExpanded ? null : trade.id)}
                     className={`border-b border-border cursor-pointer transition-colors hover:bg-bg-hover group ${isProfit ? 'border-l-2 border-l-profit/50' : 'border-l-2 border-l-loss/50'}`}
                   >
-                    <td className="px-3 py-2.5 text-text-muted">
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(trade.id)}
+                        onChange={() => toggleSelect(trade.id)}
+                        className="accent-accent cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-1 py-2.5 text-text-muted">
                       {isExpanded ? <ExpandIcon size={12} className="text-text-secondary" /> : <ChevronRight size={12} className="group-hover:text-text-secondary" />}
                     </td>
                     <td className="px-3 py-2.5">
@@ -566,7 +642,18 @@ export default function TradeLog() {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="text-xs text-text-primary">{fmtDate(trade.entry_time)}</div>
-                      <div className="text-xs text-text-muted">{fmtTime(trade.entry_time)}</div>
+                      <div className="text-xs text-text-muted flex items-center gap-1">
+                        {fmtTime(trade.entry_time)}
+                        {trade.session && (
+                          <span className={`text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide ${
+                            trade.session === 'pre-market' ? 'bg-warning/15 text-warning' :
+                            trade.session === 'rth' ? 'bg-profit/15 text-profit' :
+                            'bg-accent/15 text-accent'
+                          }`}>
+                            {trade.session === 'pre-market' ? 'PRE' : trade.session === 'rth' ? 'RTH' : 'AH'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2.5"><DirectionBadge dir={trade.direction} /></td>
                     <td className="px-3 py-2.5 font-mono text-sm text-text-primary">{trade.quantity.toLocaleString()}</td>

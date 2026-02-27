@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { AlertTriangle, TrendingUp, TrendingDown, CheckSquare, Square } from 'lucide-react'
+import { AlertTriangle, TrendingUp, TrendingDown, CheckSquare, Square, Plus } from 'lucide-react'
 import { getTrades, getChecklistState, saveChecklistState, getRules, getChecklistItems } from '../lib/db'
 import { Trade } from '../types'
 
@@ -44,6 +44,10 @@ interface CalDay {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+const PROFIT_COLOR = '#10b981'
+const LOSS_COLOR = '#ef4444'
+const GRID_COLOR = '#2a3347'
+const TICK_COLOR = '#4a5568'
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -183,12 +187,16 @@ function buildRuleViolations(trades: Trade[]) {
       count: data.count,
       cost: data.cost,
     }))
-    .sort((a, b) => a.cost - b.cost) // most costly (most negative) first
+    .sort((a, b) => a.cost - b.cost)
 }
 
 function fmtPnl(n: number): string {
   const abs = Math.abs(n).toFixed(2)
   return n >= 0 ? `+$${abs}` : `-$${abs}`
+}
+
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -208,11 +216,15 @@ function StatCard({
     color === 'profit' ? 'text-profit' :
     color === 'loss' ? 'text-loss' :
     'text-text-primary'
+  const borderClass =
+    color === 'profit' ? 'border-l-profit' :
+    color === 'loss' ? 'border-l-loss' :
+    'border-l-border'
   return (
-    <div className="stat-card">
-      <p className="text-text-muted text-xs uppercase tracking-wide mb-1.5">{label}</p>
-      <p className={`text-xl font-mono font-semibold ${valueClass}`}>{value}</p>
-      {sub && <p className="text-text-muted text-xs mt-0.5">{sub}</p>}
+    <div className={`stat-card border-l-2 ${borderClass}`}>
+      <p className="text-[11px] font-medium text-text-muted uppercase tracking-wider mb-2">{label}</p>
+      <p className={`text-2xl font-mono font-bold leading-none ${valueClass}`}>{value}</p>
+      {sub && <p className="text-text-muted text-xs mt-1.5">{sub}</p>}
     </div>
   )
 }
@@ -227,7 +239,7 @@ function EquityTooltip({
   if (!active || !payload?.length) return null
   const val = payload[0].value
   return (
-    <div className="bg-bg-card border border-border rounded-md px-3 py-2 text-sm shadow-lg">
+    <div className="bg-bg-card border border-border rounded-lg px-3 py-2 text-sm shadow-card">
       <span className={`font-mono font-semibold ${val >= 0 ? 'text-profit' : 'text-loss'}`}>
         {fmtPnl(val)}
       </span>
@@ -292,59 +304,69 @@ export default function Dashboard() {
   }, [calDays])
 
   const checklistDone = checklistItems.filter(i => checklist[i.id]).length
+  const checklistPct = checklistItems.length > 0 ? (checklistDone / checklistItems.length) * 100 : 0
   const equityIsPositive = stats.netPnl >= 0
 
   const profitFactorDisplay =
     stats.profitFactor >= 99 ? '∞' : stats.profitFactor.toFixed(2)
 
+  const periodLabel = useMemo(() => {
+    if (period === 'today') return "Today's performance"
+    if (period === 'week') return "This week's performance"
+    if (period === 'month') return `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`
+    if (period === 'custom') return customStart ? `${customStart} — ${customEnd || 'present'}` : 'Custom range'
+    return 'All-time performance'
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customStart, customEnd])
+
   return (
     <div className="p-6 space-y-5">
-      {/* ── Header + Period Selector ── */}
-      <div className="flex items-center justify-between">
+      {/* ── Header ── */}
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-text-primary">Dashboard</h1>
-          <p className="text-text-secondary text-sm">Your trading performance at a glance</p>
+          <p className="text-text-muted text-sm mt-0.5">{periodLabel}</p>
         </div>
-        <div className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1">
-          {PERIODS.map(p => (
-            <button
-              key={p.key}
-              onClick={() => setPeriod(p.key)}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                period === p.key
-                  ? 'bg-accent text-white'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1">
+            {PERIODS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  period === p.key
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'text-text-muted hover:text-text-primary'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => navigate('/new-trade')}
+            className="btn-primary text-sm flex items-center gap-1.5"
+          >
+            <Plus size={14} /> New Trade
+          </button>
         </div>
       </div>
 
       {/* ── Custom Date Range ── */}
       {period === 'custom' && (
         <div className="flex gap-3 items-center">
-          <input
-            type="date"
-            value={customStart}
-            onChange={e => setCustomStart(e.target.value)}
-            className="input w-40"
-          />
+          <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="input w-40 text-sm" />
           <span className="text-text-muted text-sm">to</span>
-          <input
-            type="date"
-            value={customEnd}
-            onChange={e => setCustomEnd(e.target.value)}
-            className="input w-40"
-          />
+          <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="input w-40 text-sm" />
         </div>
       )}
 
       {/* ── Rule Violation Alert ── */}
       {topViolation && topViolation.cost < -0.01 && (
-        <div className="bg-loss/10 border border-loss/30 rounded-lg px-4 py-3 flex items-center gap-3">
-          <AlertTriangle size={16} className="text-loss shrink-0" />
+        <div className="bg-loss/8 border border-loss/25 rounded-xl px-4 py-3.5 flex items-center gap-3">
+          <div className="w-7 h-7 rounded-full bg-loss/15 flex items-center justify-center shrink-0">
+            <AlertTriangle size={14} className="text-loss" />
+          </div>
           <p className="text-sm">
             <span className="font-semibold text-loss">Top violation: </span>
             <span className="text-text-primary">"{topViolation.name}"</span>
@@ -366,15 +388,15 @@ export default function Dashboard() {
       <div className="grid grid-cols-7 gap-3">
         <StatCard
           label="Net P/L"
-          value={`$${Math.abs(stats.netPnl).toFixed(2)}`}
+          value={fmtPnl(stats.netPnl)}
           color={stats.netPnl > 0 ? 'profit' : stats.netPnl < 0 ? 'loss' : 'neutral'}
-          sub={stats.totalTrades > 0 ? (stats.netPnl >= 0 ? 'profit' : 'loss') : undefined}
+          sub={stats.totalTrades > 0 ? `${stats.totalTrades} trade${stats.totalTrades !== 1 ? 's' : ''}` : undefined}
         />
         <StatCard
           label="Win Rate"
           value={`${stats.winRate.toFixed(1)}%`}
           color={stats.winRate >= 50 ? 'profit' : stats.totalTrades > 0 ? 'loss' : 'neutral'}
-          sub={stats.totalTrades > 0 ? `${stats.wins}W / ${stats.losses}L` : undefined}
+          sub={stats.totalTrades > 0 ? `${stats.wins}W · ${stats.losses}L` : undefined}
         />
         <StatCard
           label="Profit Factor"
@@ -407,55 +429,52 @@ export default function Dashboard() {
       </div>
 
       {/* ── Equity Curve ── */}
-      <div className="bg-bg-card border border-border rounded-lg p-4">
-        <h2 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-4">
-          Equity Curve
-        </h2>
+      <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-text-secondary">Equity Curve</h2>
+          {stats.totalTrades > 0 && (
+            <span className={`text-lg font-mono font-bold ${equityIsPositive ? 'text-profit' : 'text-loss'}`}>
+              {fmtPnl(stats.netPnl)}
+            </span>
+          )}
+        </div>
         {equityCurve.length > 1 ? (
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={equityCurve} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="5%"
-                    stopColor={equityIsPositive ? '#00c896' : '#ff4d4d'}
-                    stopOpacity={0.25}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={equityIsPositive ? '#00c896' : '#ff4d4d'}
-                    stopOpacity={0}
-                  />
+                  <stop offset="5%" stopColor={equityIsPositive ? PROFIT_COLOR : LOSS_COLOR} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={equityIsPositive ? PROFIT_COLOR : LOSS_COLOR} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={GRID_COLOR} vertical={false} />
               <XAxis
                 dataKey="label"
-                tick={{ fill: '#484f58', fontSize: 11 }}
+                tick={{ fill: TICK_COLOR, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fill: '#484f58', fontSize: 11 }}
+                tick={{ fill: TICK_COLOR, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={v => `$${v}`}
                 width={62}
               />
-              <ReferenceLine y={0} stroke="#30363d" strokeDasharray="4 4" />
+              <ReferenceLine y={0} stroke={GRID_COLOR} strokeDasharray="4 4" />
               <RechartsTooltip
                 content={<EquityTooltip />}
-                cursor={{ stroke: '#484f58', strokeWidth: 1 }}
+                cursor={{ stroke: TICK_COLOR, strokeWidth: 1 }}
               />
               <Area
                 type="monotone"
                 dataKey="equity"
-                stroke={equityIsPositive ? '#00c896' : '#ff4d4d'}
+                stroke={equityIsPositive ? PROFIT_COLOR : LOSS_COLOR}
                 strokeWidth={2}
                 fill="url(#equityGrad)"
                 dot={false}
-                activeDot={{ r: 4, fill: equityIsPositive ? '#00c896' : '#ff4d4d' }}
+                activeDot={{ r: 4, fill: equityIsPositive ? PROFIT_COLOR : LOSS_COLOR }}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -470,17 +489,15 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-5">
 
         {/* Calendar Heatmap */}
-        <div className="bg-bg-card border border-border rounded-lg p-4">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">
+        <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
+          <h2 className="text-sm font-semibold text-text-secondary mb-4">
             {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
           </h2>
-          {/* Day of week headers */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {DOW_LABELS.map(d => (
-              <div key={d} className="text-center text-xs text-text-muted py-0.5">{d}</div>
+              <div key={d} className="text-center text-[10px] font-medium text-text-muted py-0.5 uppercase tracking-wide">{d}</div>
             ))}
           </div>
-          {/* Day cells */}
           <div className="grid grid-cols-7 gap-1">
             {calDays.map((day, i) => {
               if (!day) return <div key={`pad-${i}`} />
@@ -491,13 +508,13 @@ export default function Dashboard() {
                 : 0
               const bg = hasData
                 ? day.pnl > 0
-                  ? `rgba(0, 200, 150, ${intensity})`
-                  : `rgba(255, 77, 77, ${intensity})`
+                  ? `rgba(16, 185, 129, ${intensity})`
+                  : `rgba(239, 68, 68, ${intensity})`
                 : 'transparent'
               return (
                 <div
                   key={day.date}
-                  className={`relative aspect-square rounded flex items-center justify-center text-xs select-none
+                  className={`relative aspect-square rounded-md flex items-center justify-center text-xs select-none
                     ${isToday ? 'ring-1 ring-accent ring-offset-1 ring-offset-bg-card' : ''}
                     ${hasData ? 'text-text-primary cursor-default' : 'text-text-muted'}
                   `}
@@ -513,66 +530,62 @@ export default function Dashboard() {
               )
             })}
           </div>
-          {/* Legend */}
           <div className="flex items-center gap-4 mt-3 text-xs text-text-muted">
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded" style={{ background: 'rgba(0,200,150,0.6)' }} />
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: 'rgba(16,185,129,0.65)' }} />
               Profit
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded" style={{ background: 'rgba(255,77,77,0.6)' }} />
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: 'rgba(239,68,68,0.65)' }} />
               Loss
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded border border-accent" />
+              <div className="w-2.5 h-2.5 rounded-sm border border-accent" />
               Today
             </div>
           </div>
         </div>
 
         {/* Pre-Market Checklist */}
-        <div className="bg-bg-card border border-border rounded-lg p-4">
+        <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              Pre-Market Checklist
-            </h2>
-            <span className="text-xs text-text-muted">
+            <h2 className="text-sm font-semibold text-text-secondary">Pre-Market Checklist</h2>
+            <span className={`text-xs font-medium tabular-nums ${checklistPct === 100 ? 'text-profit' : 'text-text-muted'}`}>
               {checklistDone}/{checklistItems.length}
             </span>
           </div>
-          {/* Progress bar */}
           <div className="h-1 bg-bg-secondary rounded-full mb-4 overflow-hidden">
             <div
               className="h-full bg-profit rounded-full transition-all duration-300"
-              style={{ width: `${(checklistDone / checklistItems.length) * 100}%` }}
+              style={{ width: `${checklistPct}%` }}
             />
           </div>
-          <div className="space-y-1">
-            {checklistItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => toggleCheck(item.id)}
-                className="w-full flex items-center gap-3 px-2 py-2 rounded hover:bg-bg-hover transition-colors text-left"
-              >
-                {checklist[item.id] ? (
-                  <CheckSquare size={15} className="text-profit shrink-0" />
-                ) : (
-                  <Square size={15} className="text-text-muted shrink-0" />
-                )}
-                <span
-                  className={`text-sm ${
-                    checklist[item.id] ? 'text-text-muted line-through' : 'text-text-primary'
-                  }`}
+          {checklistItems.length === 0 ? (
+            <p className="text-text-muted text-sm text-center py-4">No checklist items configured</p>
+          ) : (
+            <div className="space-y-0.5">
+              {checklistItems.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => toggleCheck(item.id)}
+                  className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors text-left"
                 >
-                  {item.label}
-                </span>
-              </button>
-            ))}
-          </div>
-          {checklistDone === checklistItems.length && (
-            <p className="text-center text-profit text-sm font-medium mt-3">
-              ✓ Ready to trade
-            </p>
+                  {checklist[item.id] ? (
+                    <CheckSquare size={15} className="text-profit shrink-0" />
+                  ) : (
+                    <Square size={15} className="text-text-muted shrink-0" />
+                  )}
+                  <span className={`text-sm ${checklist[item.id] ? 'text-text-muted line-through' : 'text-text-primary'}`}>
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {checklistDone === checklistItems.length && checklistItems.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-border text-center">
+              <p className="text-profit text-sm font-medium">Ready to trade</p>
+            </div>
           )}
         </div>
       </div>
@@ -581,68 +594,62 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-5">
 
         {/* Best & Worst Trades */}
-        <div className="bg-bg-card border border-border rounded-lg p-4">
-          <h2 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-3">
-            Best & Worst Trades
-          </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
+          <h2 className="text-sm font-semibold text-text-secondary mb-4">Best & Worst Trades</h2>
           <div className="grid grid-cols-2 gap-4">
             {/* Best */}
             <div>
-              <p className="text-xs text-profit font-semibold uppercase tracking-wide mb-2 flex items-center gap-1">
-                <TrendingUp size={11} />
-                Top Wins
+              <p className="text-[11px] font-semibold text-profit uppercase tracking-wider mb-2 flex items-center gap-1">
+                <TrendingUp size={11} /> Top Wins
               </p>
-              {bestTrades.length > 0 ? (
-                bestTrades.map(t => (
+              {bestTrades.filter(t => t.pnl > 0).length > 0 ? (
+                bestTrades.filter(t => t.pnl > 0).map(t => (
                   <div
                     key={t.id}
                     onClick={() => navigate('/trade-log')}
-                    className="flex items-center justify-between py-1.5 px-1 rounded hover:bg-bg-hover cursor-pointer"
+                    className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-bg-hover cursor-pointer transition-colors"
                   >
                     <div className="min-w-0">
-                      <span className="text-sm font-medium text-text-primary">{t.ticker}</span>
-                      <span className="text-xs text-text-muted ml-2">{t.entry_time.slice(0, 10)}</span>
+                      <span className="text-sm font-semibold text-text-primary">{t.ticker}</span>
+                      <span className="text-xs text-text-muted ml-2">{fmtDate(t.entry_time)}</span>
                     </div>
                     <span className="text-sm font-mono text-profit ml-2 shrink-0">{fmtPnl(t.pnl)}</span>
                   </div>
                 ))
               ) : (
-                <p className="text-text-muted text-xs">No wins yet</p>
+                <p className="text-text-muted text-xs px-2">No wins yet</p>
               )}
             </div>
             {/* Worst */}
             <div>
-              <p className="text-xs text-loss font-semibold uppercase tracking-wide mb-2 flex items-center gap-1">
-                <TrendingDown size={11} />
-                Worst Losses
+              <p className="text-[11px] font-semibold text-loss uppercase tracking-wider mb-2 flex items-center gap-1">
+                <TrendingDown size={11} /> Worst Losses
               </p>
               {worstTrades.filter(t => t.pnl < 0).length > 0 ? (
                 worstTrades.filter(t => t.pnl < 0).map(t => (
                   <div
                     key={t.id}
                     onClick={() => navigate('/trade-log')}
-                    className="flex items-center justify-between py-1.5 px-1 rounded hover:bg-bg-hover cursor-pointer"
+                    className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-bg-hover cursor-pointer transition-colors"
                   >
                     <div className="min-w-0">
-                      <span className="text-sm font-medium text-text-primary">{t.ticker}</span>
-                      <span className="text-xs text-text-muted ml-2">{t.entry_time.slice(0, 10)}</span>
+                      <span className="text-sm font-semibold text-text-primary">{t.ticker}</span>
+                      <span className="text-xs text-text-muted ml-2">{fmtDate(t.entry_time)}</span>
                     </div>
                     <span className="text-sm font-mono text-loss ml-2 shrink-0">{fmtPnl(t.pnl)}</span>
                   </div>
                 ))
               ) : (
-                <p className="text-text-muted text-xs">No losses yet</p>
+                <p className="text-text-muted text-xs px-2">No losses yet</p>
               )}
             </div>
           </div>
         </div>
 
         {/* Recent Trades */}
-        <div className="bg-bg-card border border-border rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xs font-medium text-text-muted uppercase tracking-wide">
-              Recent Trades
-            </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-text-secondary">Recent Trades</h2>
             <button
               onClick={() => navigate('/trade-log')}
               className="text-xs text-accent hover:underline underline-offset-2"
@@ -653,12 +660,12 @@ export default function Dashboard() {
           {recentTrades.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-text-muted text-xs border-b border-border">
-                  <th className="text-left pb-2 font-medium">Ticker</th>
-                  <th className="text-left pb-2 font-medium">Date</th>
-                  <th className="text-left pb-2 font-medium">Dir</th>
-                  <th className="text-right pb-2 font-medium">P/L</th>
-                  <th className="text-right pb-2 font-medium">R</th>
+                <tr className="text-[11px] text-text-muted uppercase tracking-wider border-b border-border">
+                  <th className="text-left pb-2.5 font-medium">Ticker</th>
+                  <th className="text-left pb-2.5 font-medium">Date</th>
+                  <th className="text-left pb-2.5 font-medium">Dir</th>
+                  <th className="text-right pb-2.5 font-medium">P/L</th>
+                  <th className="text-right pb-2.5 font-medium">R</th>
                 </tr>
               </thead>
               <tbody>
@@ -666,32 +673,22 @@ export default function Dashboard() {
                   <tr
                     key={t.id}
                     onClick={() => navigate('/trade-log')}
-                    className="hover:bg-bg-hover cursor-pointer border-b border-border/50 last:border-0"
+                    className="hover:bg-bg-hover cursor-pointer border-b border-border/40 last:border-0 transition-colors"
                   >
-                    <td className="py-2 font-semibold text-text-primary">{t.ticker}</td>
-                    <td className="py-2 text-text-muted">{t.entry_time.slice(0, 10)}</td>
-                    <td className="py-2">
-                      <span
-                        className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                          t.direction === 'long'
-                            ? 'bg-profit/15 text-profit'
-                            : 'bg-loss/15 text-loss'
-                        }`}
-                      >
+                    <td className="py-2.5 font-semibold text-text-primary">{t.ticker}</td>
+                    <td className="py-2.5 text-text-muted text-xs">{fmtDate(t.entry_time)}</td>
+                    <td className="py-2.5">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-md font-medium ${
+                        t.direction === 'long' ? 'bg-profit/12 text-profit' : 'bg-loss/12 text-loss'
+                      }`}>
                         {t.direction === 'long' ? 'L' : 'S'}
                       </span>
                     </td>
-                    <td
-                      className={`py-2 text-right font-mono font-semibold ${
-                        t.pnl >= 0 ? 'text-profit' : 'text-loss'
-                      }`}
-                    >
+                    <td className={`py-2.5 text-right font-mono font-semibold text-sm ${t.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
                       {fmtPnl(t.pnl)}
                     </td>
-                    <td className="py-2 text-right text-text-muted font-mono text-xs">
-                      {t.actual_r !== null
-                        ? `${t.actual_r >= 0 ? '+' : ''}${t.actual_r.toFixed(2)}R`
-                        : '—'}
+                    <td className="py-2.5 text-right text-text-muted font-mono text-xs">
+                      {t.actual_r !== null ? `${t.actual_r >= 0 ? '+' : ''}${t.actual_r.toFixed(2)}R` : '—'}
                     </td>
                   </tr>
                 ))}
@@ -699,7 +696,7 @@ export default function Dashboard() {
             </table>
           ) : (
             <div className="flex flex-col items-center justify-center h-28 gap-2">
-              <p className="text-text-muted text-sm">No trades logged yet.</p>
+              <p className="text-text-muted text-sm">No trades logged yet</p>
               <button
                 onClick={() => navigate('/new-trade')}
                 className="text-sm text-accent hover:underline underline-offset-2"

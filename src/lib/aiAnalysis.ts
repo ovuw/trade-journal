@@ -1,5 +1,5 @@
 import type { Trade, Rule } from '../types'
-import { DEFAULT_SETUP_TAGS, DEFAULT_RULES } from '../types'
+import { getSetupTags } from './db'
 
 // ─── Prompt builder ───────────────────────────────────────────────────────────
 
@@ -18,8 +18,10 @@ export function buildPrompt(trades: Trade[], rules: Rule[]): string {
   const avgR = trades.filter(t => t.actual_r != null).reduce((s, t) => s + (t.actual_r ?? 0), 0) /
     (trades.filter(t => t.actual_r != null).length || 1)
 
+  const setupTagsList = getSetupTags()
+
   // Rule violation summary
-  const allRules = rules.length > 0 ? rules : DEFAULT_RULES
+  const allRules = rules.length > 0 ? rules : []
   const ruleStats: Record<string, { name: string; count: number; cost: number }> = {}
   for (const trade of trades) {
     for (const ruleId of trade.rules_broken_ids) {
@@ -37,7 +39,7 @@ export function buildPrompt(trades: Trade[], rules: Rule[]): string {
   // Setup performance
   const setupStats: Record<string, { name: string; count: number; pnl: number; wins: number }> = {}
   for (const trade of trades) {
-    const tag = DEFAULT_SETUP_TAGS.find(t => t.id === trade.setup_tag_id)
+    const tag = setupTagsList.find(t => t.id === trade.setup_tag_id)
     const name = tag?.name ?? 'No setup'
     if (!setupStats[name]) setupStats[name] = { name, count: 0, pnl: 0, wins: 0 }
     setupStats[name].count++

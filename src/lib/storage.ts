@@ -51,3 +51,17 @@ export function getStorageScreenshotUrl(storagePath: string): string | null {
   const { data } = client.storage.from('screenshots').getPublicUrl(storagePath)
   return data.publicUrl
 }
+
+/**
+ * Delete a screenshot from Supabase Storage.
+ * Fire-and-forget — silent on failure.
+ */
+export async function deleteStorageScreenshot(storagePath: string): Promise<void> {
+  const client = getSupabaseClient()
+  if (!client) return
+  try {
+    await client.storage.from('screenshots').remove([storagePath])
+  } catch {
+    // silent
+  }
+}

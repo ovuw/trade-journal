@@ -1,6 +1,7 @@
 export type Direction = 'long' | 'short'
 export type AssetClass = 'stock' | 'option' | 'futures' | 'forex' | 'crypto'
 export type MarketCondition = '' | 'trending' | 'choppy' | 'volatile' | 'ranging'
+export type TradingSession = 'pre-market' | 'rth' | 'after-hours'
 
 export interface JournalEntry {
   id: string
@@ -82,6 +83,7 @@ export interface Trade {
   planned_rr: number | null
   actual_r: number | null
   screenshot_id: string | null
+  session?: TradingSession
   created_at: string
   updated_at: string
 }

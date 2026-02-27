@@ -11,8 +11,10 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { Flame, TrendingUp } from 'lucide-react'
-import { getTrades } from '../lib/db'
-import { DEFAULT_SETUP_TAGS, Trade, AssetClass } from '../types'
+import { getTrades, getSetupTags } from '../lib/db'
+import { Trade, AssetClass } from '../types'
+
+const DEFAULT_SETUP_TAGS = getSetupTags()
 
 // ─── Period filter ────────────────────────────────────────────────────────────
 
@@ -541,14 +543,14 @@ export default function Analytics() {
             <Section title="Day of Week" sub="Total P/L by trading day">
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={dowData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fill: '#484f58', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#484f58', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={52} />
-                  <ReferenceLine y={0} stroke="#30363d" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fill: '#4a5568', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#4a5568', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={52} />
+                  <ReferenceLine y={0} stroke="#2a3347" />
                   <RechartsTooltip content={<PnlTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                   <Bar dataKey="totalPnl" radius={[3, 3, 0, 0]}>
                     {dowData.map((entry, i) => (
-                      <Cell key={i} fill={entry.totalPnl >= 0 ? '#00c896' : '#ff4d4d'} fillOpacity={entry.count > 0 ? 0.85 : 0.3} />
+                      <Cell key={i} fill={entry.totalPnl >= 0 ? '#10b981' : '#ef4444'} fillOpacity={entry.count > 0 ? 0.85 : 0.3} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -562,13 +564,13 @@ export default function Analytics() {
               ) : (
                 <ResponsiveContainer width="100%" height={180}>
                   <BarChart data={rDist} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fill: '#484f58', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: '#484f58', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: '#4a5568', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fill: '#4a5568', fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} width={28} />
                     <RechartsTooltip content={<RTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                     <Bar dataKey="count" radius={[3, 3, 0, 0]}>
                       {rDist.map((entry, i) => (
-                        <Cell key={i} fill={entry.profit ? '#00c896' : '#ff4d4d'} fillOpacity={0.85} />
+                        <Cell key={i} fill={entry.profit ? '#10b981' : '#ef4444'} fillOpacity={0.85} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -581,14 +583,14 @@ export default function Analytics() {
           <Section title="Time of Day" sub="Total P/L by entry hour — shows which session hours are most profitable">
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={hourData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: '#484f58', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#484f58', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={62} />
-                <ReferenceLine y={0} stroke="#30363d" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
+                <XAxis dataKey="label" tick={{ fill: '#4a5568', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#4a5568', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={62} />
+                <ReferenceLine y={0} stroke="#2a3347" />
                 <RechartsTooltip content={<PnlTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                 <Bar dataKey="totalPnl" radius={[3, 3, 0, 0]}>
                   {hourData.map((entry, i) => (
-                    <Cell key={i} fill={entry.totalPnl >= 0 ? '#00c896' : '#ff4d4d'} fillOpacity={entry.count > 0 ? 0.85 : 0.2} />
+                    <Cell key={i} fill={entry.totalPnl >= 0 ? '#10b981' : '#ef4444'} fillOpacity={entry.count > 0 ? 0.85 : 0.2} />
                   ))}
                 </Bar>
               </BarChart>

@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react'
-import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X, BookOpen } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X, BookOpen, Tag as TagIcon } from 'lucide-react'
 import {
   getRules,
   saveRules,
@@ -7,8 +7,14 @@ import {
   saveChecklistItems,
   getPlaybookNotes,
   savePlaybookNotes,
+  getSetupTags,
+  saveSetupTags,
+  getMistakeTags,
+  saveMistakeTags,
+  getNoteTemplate,
+  saveNoteTemplate,
 } from '../lib/db'
-import { Rule, ChecklistItem } from '../types'
+import { Rule, ChecklistItem, Tag } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -144,6 +150,37 @@ export default function Playbook() {
   const [notesDirty, setNotesDirty] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
 
+  // ── Note template state ──
+  const [noteTemplate, setNoteTemplate] = useState(() => getNoteTemplate())
+  const [templateDirty, setTemplateDirty] = useState(false)
+  const [templateSaved, setTemplateSaved] = useState(false)
+
+  useEffect(() => {
+    if (!templateDirty) return
+    const timer = setTimeout(() => {
+      saveNoteTemplate(noteTemplate)
+      setTemplateDirty(false)
+      setTemplateSaved(true)
+      setTimeout(() => setTemplateSaved(false), 2000)
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [noteTemplate, templateDirty])
+
+  const handleTemplateChange = (v: string) => {
+    setNoteTemplate(v)
+    setTemplateDirty(true)
+    setTemplateSaved(false)
+  }
+
+  // ── Tags state ──
+  const [setupTags, setSetupTags] = useState<Tag[]>(() => getSetupTags())
+  const [mistakeTags, setMistakeTags] = useState<Tag[]>(() => getMistakeTags())
+  const [editingTagId, setEditingTagId] = useState<string | null>(null)
+  const [editingTagType, setEditingTagType] = useState<'setup' | 'mistake' | null>(null)
+  const [tagForm, setTagForm] = useState({ name: '', color: '#6366f1' })
+  const [addingTagType, setAddingTagType] = useState<'setup' | 'mistake' | null>(null)
+  const [newTagForm, setNewTagForm] = useState({ name: '', color: '#6366f1' })
+
   // ─── Rules helpers ────────────────────────────────────────────────────────
 
   const persistRules = (updated: Rule[]) => {
@@ -234,11 +271,60 @@ export default function Playbook() {
     setNotesSaved(false)
   }
 
-  const handleNotesSave = () => {
-    savePlaybookNotes(notes)
-    setNotesDirty(false)
-    setNotesSaved(true)
-    setTimeout(() => setNotesSaved(false), 2000)
+  useEffect(() => {
+    if (!notesDirty) return
+    const timer = setTimeout(() => {
+      savePlaybookNotes(notes)
+      setNotesDirty(false)
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+    }, 700)
+    return () => clearTimeout(timer)
+  }, [notes, notesDirty])
+
+  // ─── Tags helpers ─────────────────────────────────────────────────────────
+
+  function handleAddTag(type: 'setup' | 'mistake') {
+    if (!newTagForm.name.trim()) return
+    const newTag: Tag = { id: `tag-${Date.now()}`, name: newTagForm.name.trim(), color: newTagForm.color }
+    if (type === 'setup') {
+      const updated = [...setupTags, newTag]
+      setSetupTags(updated)
+      saveSetupTags(updated)
+    } else {
+      const updated = [...mistakeTags, newTag]
+      setMistakeTags(updated)
+      saveMistakeTags(updated)
+    }
+    setAddingTagType(null)
+    setNewTagForm({ name: '', color: '#6366f1' })
+  }
+
+  function handleSaveTag(type: 'setup' | 'mistake', id: string) {
+    if (!tagForm.name.trim()) return
+    if (type === 'setup') {
+      const updated = setupTags.map(t => t.id === id ? { ...t, name: tagForm.name.trim(), color: tagForm.color } : t)
+      setSetupTags(updated)
+      saveSetupTags(updated)
+    } else {
+      const updated = mistakeTags.map(t => t.id === id ? { ...t, name: tagForm.name.trim(), color: tagForm.color } : t)
+      setMistakeTags(updated)
+      saveMistakeTags(updated)
+    }
+    setEditingTagId(null)
+    setEditingTagType(null)
+  }
+
+  function handleDeleteTag(type: 'setup' | 'mistake', id: string) {
+    if (type === 'setup') {
+      const updated = setupTags.filter(t => t.id !== id)
+      setSetupTags(updated)
+      saveSetupTags(updated)
+    } else {
+      const updated = mistakeTags.filter(t => t.id !== id)
+      setMistakeTags(updated)
+      saveMistakeTags(updated)
+    }
   }
 
   // ─── Filtered rules ───────────────────────────────────────────────────────
@@ -519,7 +605,139 @@ export default function Playbook() {
       </div>
 
       {/* ════════════════════════════════════════════
-          SECTION 3: PLAYBOOK NOTES
+          SECTION 3: SETUP & MISTAKE TAGS
+      ════════════════════════════════════════════ */}
+      <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+          <TagIcon size={14} className="text-text-muted" />
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Tags</h2>
+            <p className="text-xs text-text-muted mt-0.5">
+              Customize the setup and mistake tags that appear on the trade form
+            </p>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-5">
+          {/* Setup Tags */}
+          {(['setup', 'mistake'] as const).map(type => {
+            const tags = type === 'setup' ? setupTags : mistakeTags
+            const label = type === 'setup' ? 'Setup Tags' : 'Mistake Tags'
+            const isAdding = addingTagType === type
+            return (
+              <div key={type}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium text-text-primary">{label}</p>
+                  <button
+                    onClick={() => { setAddingTagType(isAdding ? null : type); setNewTagForm({ name: '', color: type === 'setup' ? '#6366f1' : '#ef4444' }) }}
+                    className="text-xs text-accent hover:underline flex items-center gap-1"
+                  >
+                    <Plus size={11} /> Add
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {tags.map(tag => (
+                    <div key={tag.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg-secondary">
+                      {editingTagId === tag.id && editingTagType === type ? (
+                        <>
+                          <input
+                            type="color"
+                            value={tagForm.color}
+                            onChange={e => setTagForm(f => ({ ...f, color: e.target.value }))}
+                            className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+                          />
+                          <input
+                            type="text"
+                            value={tagForm.name}
+                            onChange={e => setTagForm(f => ({ ...f, name: e.target.value }))}
+                            onKeyDown={e => { if (e.key === 'Enter') handleSaveTag(type, tag.id); if (e.key === 'Escape') { setEditingTagId(null); setEditingTagType(null) } }}
+                            className="input text-sm py-1 flex-1"
+                            autoFocus
+                          />
+                          <button onClick={() => handleSaveTag(type, tag.id)} className="p-1 text-profit hover:bg-profit/10 rounded"><Check size={13} /></button>
+                          <button onClick={() => { setEditingTagId(null); setEditingTagType(null) }} className="p-1 text-text-muted hover:bg-bg-hover rounded"><X size={13} /></button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: tag.color }} />
+                          <span className="flex-1 text-sm text-text-primary">{tag.name}</span>
+                          <button
+                            onClick={() => { setEditingTagId(tag.id); setEditingTagType(type); setTagForm({ name: tag.name, color: tag.color }) }}
+                            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTag(type, tag.id)}
+                            className="p-1.5 text-text-muted hover:text-loss hover:bg-loss/10 rounded transition-colors"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+
+                  {isAdding && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-accent/40 bg-bg-secondary">
+                      <input
+                        type="color"
+                        value={newTagForm.color}
+                        onChange={e => setNewTagForm(f => ({ ...f, color: e.target.value }))}
+                        className="w-6 h-6 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+                      />
+                      <input
+                        type="text"
+                        value={newTagForm.name}
+                        onChange={e => setNewTagForm(f => ({ ...f, name: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAddTag(type); if (e.key === 'Escape') setAddingTagType(null) }}
+                        placeholder={type === 'setup' ? 'e.g. Stage 2 Breakout' : 'e.g. Chased the entry'}
+                        className="input text-sm py-1 flex-1"
+                        autoFocus
+                      />
+                      <button onClick={() => handleAddTag(type)} disabled={!newTagForm.name.trim()} className="p-1 text-profit hover:bg-profit/10 rounded disabled:opacity-40"><Check size={13} /></button>
+                      <button onClick={() => setAddingTagType(null)} className="p-1 text-text-muted hover:bg-bg-hover rounded"><X size={13} /></button>
+                    </div>
+                  )}
+
+                  {tags.length === 0 && !isAdding && (
+                    <p className="text-xs text-text-muted pl-1">No {label.toLowerCase()} yet.</p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          SECTION 4: TRADE NOTE TEMPLATE
+      ════════════════════════════════════════════ */}
+      <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold text-text-primary">Trade Note Template</h2>
+            <p className="text-xs text-text-muted mt-0.5">Pre-fills the Notes field on new trades. Edit to match your journaling style.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {templateSaved && <span className="text-xs text-profit flex items-center gap-1"><Check size={12} /> Saved</span>}
+            {templateDirty && <span className="text-xs text-text-muted">Saving…</span>}
+          </div>
+        </div>
+        <div className="p-4">
+          <textarea
+            value={noteTemplate}
+            onChange={e => handleTemplateChange(e.target.value)}
+            rows={8}
+            className="input resize-none text-sm leading-relaxed font-mono w-full"
+          />
+          <p className="text-xs text-text-muted mt-2">This template appears pre-filled on the New Trade form when notes are empty.</p>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════
+          SECTION 5: PLAYBOOK NOTES
       ════════════════════════════════════════════ */}
       <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
@@ -527,19 +745,15 @@ export default function Playbook() {
             <BookOpen size={16} className="text-text-muted" />
             <h2 className="text-base font-semibold text-text-primary">Strategy Notes</h2>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {notesSaved && (
               <span className="text-xs text-profit flex items-center gap-1">
                 <Check size={12} /> Saved
               </span>
             )}
-            <button
-              onClick={handleNotesSave}
-              disabled={!notesDirty}
-              className="btn-primary text-sm py-1.5 px-3 disabled:opacity-40"
-            >
-              Save Notes
-            </button>
+            {notesDirty && (
+              <span className="text-xs text-text-muted">Saving…</span>
+            )}
           </div>
         </div>
         <div className="p-4">

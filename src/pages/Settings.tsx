@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
-  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell,
+  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell, Zap,
 } from 'lucide-react'
+import { check as checkForUpdates } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import {
   getAccounts, saveAccounts, getActiveAccountId, setActiveAccountId, type AccountRecord,
   saveCalcSettings, getSupabaseConfig, saveSupabaseConfig, getTrades,
@@ -211,6 +213,7 @@ export default function Settings() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
   const [syncResult, setSyncResult] = useState<{ pulled: number; pushed: number } | null>(null)
   const [syncError, setSyncError] = useState('')
+  const [autoSyncBanner, setAutoSyncBanner] = useState<{ kind: 'success' | 'error'; message: string } | null>(null)
 
   // ── Export / import ──────────────────────────────────────────────────────────
   const importRef = useRef<HTMLInputElement>(null)
@@ -219,11 +222,33 @@ export default function Settings() {
   const [reminder, setReminder] = useState(() => getReminderSettings())
   const [reminderSaved, setReminderSaved] = useState(false)
 
+  // ── Updates ───────────────────────────────────────────────────────────────────
+  type UpdateState = { kind: 'idle' } | { kind: 'checking' } | { kind: 'up-to-date' } | { kind: 'available'; version: string } | { kind: 'downloading'; progress: number } | { kind: 'ready' } | { kind: 'error'; message: string }
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' })
+
   // ── Danger zone ──────────────────────────────────────────────────────────────
   const [clearConfirm, setClearConfirm] = useState<'trades' | 'all' | null>(null)
   const [rulesReset, setRulesReset] = useState(false)
 
   useEffect(() => { getSession().then(s => setSession(s)) }, [])
+
+  useEffect(() => {
+    const onSynced = () => {
+      setAutoSyncBanner({ kind: 'success', message: 'Auto-sync complete' })
+      setTimeout(() => setAutoSyncBanner(null), 4000)
+    }
+    const onError = (e: Event) => {
+      const msg = (e as CustomEvent<string>).detail ?? 'Sync failed'
+      setAutoSyncBanner({ kind: 'error', message: msg })
+      setTimeout(() => setAutoSyncBanner(null), 6000)
+    }
+    window.addEventListener('tj:synced', onSynced)
+    window.addEventListener('tj:sync-error', onError)
+    return () => {
+      window.removeEventListener('tj:synced', onSynced)
+      window.removeEventListener('tj:sync-error', onError)
+    }
+  }, [])
 
   const taxYears = useMemo(() => {
     const years = new Set(
@@ -401,6 +426,47 @@ export default function Settings() {
     setTimeout(() => window.location.replace('/'), 1000)
   }
 
+  // ── Update handlers ───────────────────────────────────────────────────────────
+
+  async function handleCheckUpdates() {
+    setUpdateState({ kind: 'checking' })
+    try {
+      const update = await checkForUpdates()
+      if (update?.available) {
+        setUpdateState({ kind: 'available', version: update.version })
+      } else {
+        setUpdateState({ kind: 'up-to-date' })
+        setTimeout(() => setUpdateState({ kind: 'idle' }), 4000)
+      }
+    } catch {
+      setUpdateState({ kind: 'error', message: 'Update check failed.' })
+      setTimeout(() => setUpdateState({ kind: 'idle' }), 4000)
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (updateState.kind !== 'available') return
+    try {
+      const update = await checkForUpdates()
+      if (!update?.available) return
+      let downloaded = 0
+      let total = 0
+      await update.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          total = event.data.contentLength ?? 0
+          setUpdateState({ kind: 'downloading', progress: 0 })
+        } else if (event.event === 'Progress') {
+          downloaded += event.data.chunkLength
+          setUpdateState({ kind: 'downloading', progress: total > 0 ? Math.round((downloaded / total) * 100) : 0 })
+        } else if (event.event === 'Finished') {
+          setUpdateState({ kind: 'ready' })
+        }
+      })
+    } catch (err) {
+      setUpdateState({ kind: 'error', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   // ── Reminder handlers ─────────────────────────────────────────────────────────
 
   function handleSaveReminder(updated: typeof reminder) {
@@ -441,6 +507,20 @@ export default function Settings() {
         <h1 className="text-2xl font-semibold text-text-primary">Settings</h1>
         <p className="text-text-secondary text-sm mt-0.5">Account management, risk defaults, and data</p>
       </div>
+
+      {/* Auto-sync banner */}
+      {autoSyncBanner && (
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium ${
+          autoSyncBanner.kind === 'success'
+            ? 'bg-profit/10 border-profit/30 text-profit'
+            : 'bg-loss/10 border-loss/30 text-loss'
+        }`}>
+          {autoSyncBanner.kind === 'success'
+            ? <Check size={14} className="shrink-0" />
+            : <RefreshCw size={14} className="shrink-0" />}
+          {autoSyncBanner.message}
+        </div>
+      )}
 
       {/* ── Accounts ── */}
       <Section icon={Users} title="Accounts">
@@ -774,6 +854,55 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* ── Updates ── */}
+      <Section icon={Zap} title="Updates">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-sm font-medium text-text-primary mb-0.5">Check for Updates</p>
+            <p className="text-xs text-text-muted">Manually check for a new version of Trade Journal.</p>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {updateState.kind === 'idle' && (
+              <button onClick={() => { void handleCheckUpdates() }} className="btn-secondary text-sm flex items-center gap-1.5">
+                <RefreshCw size={13} /> Check Now
+              </button>
+            )}
+            {updateState.kind === 'checking' && (
+              <span className="flex items-center gap-1.5 text-sm text-text-muted">
+                <RefreshCw size={13} className="animate-spin" /> Checking…
+              </span>
+            )}
+            {updateState.kind === 'up-to-date' && (
+              <span className="flex items-center gap-1 text-sm text-profit"><Check size={13} /> Up to date</span>
+            )}
+            {updateState.kind === 'available' && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-warning font-medium">v{updateState.version} available</span>
+                <button onClick={() => { void handleInstallUpdate() }} className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5">
+                  <Download size={12} /> Install
+                </button>
+              </div>
+            )}
+            {updateState.kind === 'downloading' && (
+              <div className="flex items-center gap-2">
+                <div className="w-24 h-1.5 rounded-full bg-bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-accent transition-all duration-300" style={{ width: `${updateState.progress}%` }} />
+                </div>
+                <span className="text-xs text-text-muted font-mono">{updateState.progress}%</span>
+              </div>
+            )}
+            {updateState.kind === 'ready' && (
+              <button onClick={() => { void relaunch() }} className="btn-primary text-sm flex items-center gap-1.5">
+                <RefreshCw size={13} /> Restart &amp; Install
+              </button>
+            )}
+            {updateState.kind === 'error' && (
+              <span className="text-xs text-loss">{updateState.message}</span>
+            )}
+          </div>
+        </div>
+      </Section>
+
       {/* ── Danger Zone ── */}
       <Section icon={Trash2} title="Danger Zone" titleClass="text-loss" borderClass="border-loss/20">
         <div className="space-y-4">
@@ -796,7 +925,7 @@ export default function Settings() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-medium text-text-primary">Delete all trades?</p>
-              <p className="text-xs text-text-secondary">All trade entries and local screenshots will be permanently removed. Cannot be undone.</p>
+              <p className="text-xs text-text-secondary">This will permanently delete <span className="text-loss font-medium">{getTrades().length} trade{getTrades().length !== 1 ? 's' : ''}</span> and all associated screenshots. Cannot be undone.</p>
               <div className="flex gap-2">
                 <button
                   onClick={handleClearTrades}
@@ -831,7 +960,7 @@ export default function Settings() {
             <div className="space-y-3">
               <p className="text-sm font-medium text-text-primary">Are you absolutely sure?</p>
               <p className="text-xs text-text-secondary">
-                This will permanently delete all your trades, journal entries, rules, and settings. Cannot be undone.
+                This will permanently delete <span className="text-loss font-medium">{getTrades().length} trade{getTrades().length !== 1 ? 's' : ''}</span>, all journal entries, rules, and settings. Cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button

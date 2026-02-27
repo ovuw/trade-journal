@@ -1,4 +1,5 @@
-import { Direction, AssetClass, DEFAULT_SETUP_TAGS } from '../types'
+import { Direction, AssetClass } from '../types'
+import { getSetupTags } from './db'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -443,7 +444,7 @@ function parseGenericRow(row: Record<string, string>, rowNum: number): ParsedTra
   const exit_time = toIso(row['exit_time'] ?? row['entry_time'] ?? '')
 
   const setupName = (row['setup_tag'] ?? '').toLowerCase()
-  const setup_tag_id = DEFAULT_SETUP_TAGS.find(t => t.name.toLowerCase() === setupName)?.id ?? ''
+  const setup_tag_id = getSetupTags().find(t => t.name.toLowerCase() === setupName)?.id ?? ''
 
   return {
     ticker,

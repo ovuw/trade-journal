@@ -18,8 +18,12 @@ export function useAutoSync() {
         if (!cancelled) {
           window.dispatchEvent(new CustomEvent('tj:synced'))
         }
-      } catch {
-        // Silent — sync failure should never interrupt the user
+      } catch (err) {
+        if (!cancelled) {
+          window.dispatchEvent(new CustomEvent('tj:sync-error', {
+            detail: err instanceof Error ? err.message : 'Sync failed',
+          }))
+        }
       }
     }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { Download, X, RefreshCw } from "lucide-react";
 
 type UpdateState =
   | { kind: "idle" }
@@ -20,16 +21,11 @@ export default function UpdaterDialog() {
         setState({ kind: "checking" });
         const update = await check();
         if (update?.available) {
-          setState({
-            kind: "available",
-            version: update.version,
-            body: update.body,
-          });
+          setState({ kind: "available", version: update.version, body: update.body });
         } else {
           setState({ kind: "idle" });
         }
       } catch {
-        // Silently ignore — updater errors shouldn't interrupt the user
         setState({ kind: "idle" });
       }
     }, 1500);
@@ -40,32 +36,24 @@ export default function UpdaterDialog() {
     if (state.kind !== "available") return;
     const version = state.version;
     const body = state.body;
-
     try {
       const update = await check();
       if (!update?.available) return;
-
       let downloaded = 0;
       let total = 0;
-
       await update.downloadAndInstall((event) => {
         if (event.event === "Started") {
           total = event.data.contentLength ?? 0;
           setState({ kind: "downloading", progress: 0 });
         } else if (event.event === "Progress") {
           downloaded += event.data.chunkLength;
-          const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
-          setState({ kind: "downloading", progress: pct });
+          setState({ kind: "downloading", progress: total > 0 ? Math.round((downloaded / total) * 100) : 0 });
         } else if (event.event === "Finished") {
           setState({ kind: "ready" });
         }
       });
     } catch (err) {
-      setState({
-        kind: "error",
-        message: err instanceof Error ? err.message : String(err),
-      });
-      // Re-surface the available banner so user can retry
+      setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
       setTimeout(() => setState({ kind: "available", version, body }), 3000);
     }
   }
@@ -79,33 +67,36 @@ export default function UpdaterDialog() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-80 rounded-lg border border-gray-700 bg-gray-900 shadow-2xl">
+    <div className="fixed bottom-5 right-5 z-50 w-80 rounded-xl border border-border bg-bg-card shadow-card-hover">
       {state.kind === "available" && (
         <div className="p-4">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-sm font-semibold text-white">
-              Update available — v{state.version}
-            </span>
-            <button
-              onClick={() => setDismissed(true)}
-              className="text-gray-500 hover:text-gray-300 text-lg leading-none"
-            >
-              ×
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                <Download size={13} className="text-accent" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-text-primary leading-none">Update available</p>
+                <p className="text-xs text-text-muted mt-0.5">v{state.version}</p>
+              </div>
+            </div>
+            <button onClick={() => setDismissed(true)} className="text-text-muted hover:text-text-primary p-0.5">
+              <X size={14} />
             </button>
           </div>
           {state.body && (
-            <p className="mb-3 text-xs text-gray-400 line-clamp-3">{state.body}</p>
+            <p className="mb-3 text-xs text-text-secondary leading-relaxed line-clamp-3">{state.body}</p>
           )}
           <div className="flex gap-2">
             <button
               onClick={handleDownload}
-              className="flex-1 rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
+              className="flex-1 btn-primary text-xs py-1.5"
             >
               Update Now
             </button>
             <button
               onClick={() => setDismissed(true)}
-              className="rounded px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+              className="btn-secondary text-xs py-1.5 px-3"
             >
               Later
             </button>
@@ -115,27 +106,27 @@ export default function UpdaterDialog() {
 
       {state.kind === "downloading" && (
         <div className="p-4">
-          <p className="mb-2 text-sm font-semibold text-white">Downloading update…</p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-700">
+          <p className="text-sm font-semibold text-text-primary mb-2.5">Downloading update…</p>
+          <div className="h-1.5 w-full rounded-full bg-bg-secondary overflow-hidden">
             <div
-              className="h-full rounded-full bg-emerald-500 transition-all duration-300"
+              className="h-full rounded-full bg-accent transition-all duration-300"
               style={{ width: `${state.progress}%` }}
             />
           </div>
-          <p className="mt-1 text-right text-xs text-gray-400">{state.progress}%</p>
+          <p className="mt-1.5 text-right text-xs text-text-muted">{state.progress}%</p>
         </div>
       )}
 
       {state.kind === "ready" && (
         <div className="p-4">
-          <p className="mb-1 text-sm font-semibold text-white">Update ready to install</p>
-          <p className="mb-3 text-xs text-gray-400">
-            Restart the app to apply the update.
-          </p>
-          <button
-            onClick={handleRestart}
-            className="w-full rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 transition-colors"
-          >
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-lg bg-profit/10 flex items-center justify-center shrink-0">
+              <RefreshCw size={13} className="text-profit" />
+            </div>
+            <p className="text-sm font-semibold text-text-primary">Ready to install</p>
+          </div>
+          <p className="text-xs text-text-secondary mb-3">Restart the app to apply the update.</p>
+          <button onClick={handleRestart} className="w-full btn-primary text-xs py-1.5">
             Restart &amp; Install
           </button>
         </div>
@@ -143,8 +134,8 @@ export default function UpdaterDialog() {
 
       {state.kind === "error" && (
         <div className="p-4">
-          <p className="mb-1 text-sm font-semibold text-red-400">Update failed</p>
-          <p className="text-xs text-gray-400">{state.message}</p>
+          <p className="text-sm font-semibold text-loss mb-1">Update failed</p>
+          <p className="text-xs text-text-secondary">{state.message}</p>
         </div>
       )}
     </div>

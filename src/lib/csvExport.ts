@@ -1,5 +1,8 @@
-import { Trade } from '../types'
-import { DEFAULT_SETUP_TAGS, DEFAULT_MISTAKE_TAGS, DEFAULT_RULES } from '../types'
+import { Trade, DEFAULT_RULES } from '../types'
+import { getSetupTags, getMistakeTags } from './db'
+
+const SETUP_TAGS = getSetupTags()
+const MISTAKE_TAGS_LIST = getMistakeTags()
 
 function escapeCell(v: string | number | null | undefined): string {
   const s = String(v ?? '')
@@ -16,9 +19,9 @@ export function exportTradesToCsv(trades: Trade[]): string {
   ]
 
   const rows = trades.map(t => {
-    const setupTag = DEFAULT_SETUP_TAGS.find(s => s.id === t.setup_tag_id)?.name ?? ''
+    const setupTag = SETUP_TAGS.find(s => s.id === t.setup_tag_id)?.name ?? ''
     const mistakeTags = t.mistake_tag_ids
-      .map(id => DEFAULT_MISTAKE_TAGS.find(m => m.id === id)?.name ?? id)
+      .map(id => MISTAKE_TAGS_LIST.find(m => m.id === id)?.name ?? id)
       .join('; ')
     const rulesBroken = t.rules_broken_ids
       .map(id => DEFAULT_RULES.find(r => r.id === id)?.name ?? id)

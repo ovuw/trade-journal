@@ -14,10 +14,12 @@ import Simulator from "./pages/Simulator";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { useAutoSync } from "./hooks/useAutoSync";
 import { usePreMarketReminder } from "./hooks/usePreMarketReminder";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 function App() {
   useAutoSync();
   usePreMarketReminder();
+  useKeyboardShortcuts();
   return (
     <>
       <UpdaterDialog />

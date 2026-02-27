@@ -13,8 +13,10 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { AlertTriangle, ChevronDown, ChevronRight, TrendingDown, Zap, ClipboardCheck, Trophy } from 'lucide-react'
-import { getTrades, getRules, getChecklistState, getChecklistItems } from '../lib/db'
-import { DEFAULT_MISTAKE_TAGS, Rule, Trade } from '../types'
+import { getTrades, getRules, getChecklistState, getChecklistItems, getMistakeTags } from '../lib/db'
+import { Rule, Trade } from '../types'
+
+const DEFAULT_MISTAKE_TAGS = getMistakeTags()
 
 // ─── Period filter (mirrors Dashboard) ────────────────────────────────────────
 
@@ -743,15 +745,15 @@ export default function Review() {
               <>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={weeklyTrend} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#21262d" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
                     <XAxis
                       dataKey="label"
-                      tick={{ fill: '#484f58', fontSize: 11 }}
+                      tick={{ fill: '#4a5568', fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                     />
                     <YAxis
-                      tick={{ fill: '#484f58', fontSize: 11 }}
+                      tick={{ fill: '#4a5568', fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       tickFormatter={v => `${v}%`}
@@ -767,7 +769,7 @@ export default function Review() {
                       {weeklyTrend.map((entry, i) => (
                         <Cell
                           key={i}
-                          fill={entry.rate > 50 ? '#ff4d4d' : entry.rate > 25 ? '#d29922' : '#00c896'}
+                          fill={entry.rate > 50 ? '#ef4444' : entry.rate > 25 ? '#f59e0b' : '#10b981'}
                           fillOpacity={0.85}
                         />
                       ))}
@@ -797,14 +799,14 @@ export default function Review() {
               <>
                 <ResponsiveContainer width="100%" height={220}>
                   <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#21262d" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" />
                     <XAxis
                       dataKey="x"
                       type="number"
                       domain={[0.5, 5.5]}
                       ticks={[1, 2, 3, 4, 5]}
                       tickFormatter={v => (['', 'Anxious', 'Uneasy', 'Neutral', 'Confident', 'Optimal'])[Math.round(v)] ?? ''}
-                      tick={{ fill: '#484f58', fontSize: 11 }}
+                      tick={{ fill: '#4a5568', fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       name="Emotion"
@@ -813,19 +815,19 @@ export default function Review() {
                       dataKey="y"
                       type="number"
                       tickFormatter={v => `$${v}`}
-                      tick={{ fill: '#484f58', fontSize: 11 }}
+                      tick={{ fill: '#4a5568', fontSize: 11 }}
                       axisLine={false}
                       tickLine={false}
                       width={62}
                       name="P/L"
                     />
-                    <ReferenceLine y={0} stroke="#30363d" strokeDasharray="4 4" />
-                    <RechartsTooltip content={<EmotionTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#484f58' }} />
+                    <ReferenceLine y={0} stroke="#2a3347" strokeDasharray="4 4" />
+                    <RechartsTooltip content={<EmotionTooltip />} cursor={{ strokeDasharray: '3 3', stroke: '#4a5568' }} />
                     <Scatter data={emotionScatter} isAnimationActive={false}>
                       {emotionScatter.map((point, i) => (
                         <Cell
                           key={i}
-                          fill={point.y >= 0 ? '#00c896' : '#ff4d4d'}
+                          fill={point.y >= 0 ? '#10b981' : '#ef4444'}
                           fillOpacity={0.75}
                         />
                       ))}

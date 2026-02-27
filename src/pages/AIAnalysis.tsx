@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { Sparkles, Play, Square, Key, ExternalLink, ChevronDown } from 'lucide-react'
-import { getTrades, getRules, getAnthropicKey, saveAnthropicKey } from '../lib/db'
+import { Sparkles, Play, Square, Key, ExternalLink, ChevronDown, History, Clock } from 'lucide-react'
+import { getTrades, getRules, getAnthropicKey, saveAnthropicKey, saveAnalysis, getAnalyses, type SavedAnalysis } from '../lib/db'
 import { buildPrompt, streamAnalysis } from '../lib/aiAnalysis'
 import type { Trade } from '../types'
 
@@ -58,6 +58,8 @@ export default function AIAnalysis() {
   const [output, setOutput] = useState('')
   const [error, setError] = useState('')
   const [tradeCount, setTradeCount] = useState(0)
+  const [analyses, setAnalyses] = useState<SavedAnalysis[]>(() => getAnalyses())
+  const [viewingAnalysis, setViewingAnalysis] = useState<SavedAnalysis | null>(null)
   const abortRef = useRef<boolean>(false)
   const outputRef = useRef<HTMLDivElement>(null)
 
@@ -99,14 +101,25 @@ export default function AIAnalysis() {
     setStatus('running')
     setOutput('')
     setError('')
+    setViewingAnalysis(null)
     abortRef.current = false
 
+    let accumulated = ''
     try {
       for await (const chunk of streamAnalysis(apiKey, prompt)) {
         if (abortRef.current) break
-        setOutput(prev => prev + chunk)
+        accumulated += chunk
+        setOutput(accumulated)
       }
       setStatus('done')
+      if (accumulated.length > 0) {
+        saveAnalysis({
+          date: new Date().toISOString().slice(0, 10),
+          period: periodLabel[period],
+          content: accumulated,
+        })
+        setAnalyses(getAnalyses())
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
       setStatus('error')
@@ -179,7 +192,31 @@ export default function AIAnalysis() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-hidden flex flex-col p-6 gap-4">
+      <div className="flex-1 overflow-hidden flex gap-0">
+
+        {/* History sidebar */}
+        {analyses.length > 0 && (
+          <div className="w-56 shrink-0 border-r border-border flex flex-col bg-bg-secondary h-full overflow-y-auto">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+              <History size={13} className="text-text-muted" />
+              <p className="text-xs font-medium text-text-secondary">Previous Analyses</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {analyses.map(a => (
+                <button
+                  key={a.id}
+                  onClick={() => { setViewingAnalysis(a); setOutput('') }}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${viewingAnalysis?.id === a.id ? 'bg-accent/10 text-accent' : 'hover:bg-bg-hover text-text-secondary'}`}
+                >
+                  <p className="text-xs font-medium leading-none mb-1">{a.period}</p>
+                  <p className="text-[10px] text-text-muted flex items-center gap-1"><Clock size={9} />{a.date}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-hidden flex flex-col p-6 gap-4">
 
         {/* API key setup */}
         {!apiKey && (
@@ -241,8 +278,22 @@ export default function AIAnalysis() {
           </div>
         )}
 
+        {/* Saved analysis viewer */}
+        {viewingAnalysis && (
+          <div className="flex-1 overflow-y-auto bg-bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+              <History size={13} className="text-text-muted" />
+              <span className="text-xs text-text-secondary font-medium">{viewingAnalysis.period} · {viewingAnalysis.date}</span>
+              <button onClick={() => setViewingAnalysis(null)} className="ml-auto text-xs text-text-muted hover:text-text-primary">New analysis →</button>
+            </div>
+            <div className="space-y-0.5">
+              {renderMarkdown(viewingAnalysis.content)}
+            </div>
+          </div>
+        )}
+
         {/* Output */}
-        {apiKey && (
+        {apiKey && !viewingAnalysis && (
           <div
             ref={outputRef}
             className="flex-1 overflow-y-auto bg-bg-card border border-border rounded-xl p-6"
@@ -267,6 +318,7 @@ export default function AIAnalysis() {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   )

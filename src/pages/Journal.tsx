@@ -94,6 +94,10 @@ export default function Journal() {
   // Search
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Recent entries filters
+  const [filterMood, setFilterMood] = useState(0)
+  const [filterCondition, setFilterCondition] = useState<MarketCondition | ''>('')
+
   // Auto-save ref
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -324,9 +328,33 @@ export default function Journal() {
           {!searchQuery && (
             <div className="mt-3">
               <p className="text-xs text-text-muted mb-2">Recent entries</p>
+              <div className="flex flex-col gap-1.5 mb-2">
+                <select
+                  value={filterMood}
+                  onChange={e => setFilterMood(Number(e.target.value))}
+                  className="input text-[11px] py-1 px-2 h-7"
+                >
+                  <option value={0}>All moods</option>
+                  {[1, 2, 3, 4, 5].map(v => (
+                    <option key={v} value={v}>{v}★ {MOOD_LABELS[v]}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterCondition}
+                  onChange={e => setFilterCondition(e.target.value as MarketCondition | '')}
+                  className="input text-[11px] py-1 px-2 h-7"
+                >
+                  <option value="">All conditions</option>
+                  {MARKET_CONDITIONS.map(mc => (
+                    <option key={mc.value} value={mc.value}>{mc.label}</option>
+                  ))}
+                </select>
+              </div>
               <div className="space-y-1">
                 {allEntries
-                  .filter(e => e.content.trim() || e.mood > 0)
+                  .filter(e => (e.content.trim() || e.mood > 0))
+                  .filter(e => filterMood === 0 || e.mood === filterMood)
+                  .filter(e => !filterCondition || e.market_condition === filterCondition)
                   .slice(0, 8)
                   .map(e => (
                     <button
@@ -336,10 +364,17 @@ export default function Journal() {
                     >
                       <p className="text-xs font-medium">{e.date}</p>
                       {e.mood > 0 && (
-                        <p className="text-[10px] text-text-muted">{MOOD_LABELS[e.mood]}</p>
+                        <p className="text-[10px] text-text-muted">{MOOD_LABELS[e.mood]}{e.market_condition ? ` · ${e.market_condition}` : ''}</p>
                       )}
                     </button>
                   ))}
+                {allEntries
+                  .filter(e => (e.content.trim() || e.mood > 0))
+                  .filter(e => filterMood === 0 || e.mood === filterMood)
+                  .filter(e => !filterCondition || e.market_condition === filterCondition)
+                  .length === 0 && (
+                  <p className="text-xs text-text-muted text-center py-2">No entries match.</p>
+                )}
               </div>
             </div>
           )}

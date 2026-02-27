@@ -2,7 +2,7 @@
  * Local database using localStorage.
  * Supabase sync will be layered on top in Phase 11.
  */
-import { Trade, Rule, ChecklistItem, JournalEntry, DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS } from '../types'
+import { Trade, Rule, ChecklistItem, JournalEntry, Tag, DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS, DEFAULT_SETUP_TAGS, DEFAULT_MISTAKE_TAGS } from '../types'
 
 const TRADES_KEY = 'tj_trades'
 
@@ -42,6 +42,11 @@ export function updateTrade(id: string, updates: Partial<Omit<Trade, 'id' | 'cre
 
 export function deleteTrade(id: string): void {
   localStorage.setItem(TRADES_KEY, JSON.stringify(getTrades().filter(t => t.id !== id)))
+}
+
+export function deleteTrades(ids: string[]): void {
+  const idSet = new Set(ids)
+  localStorage.setItem(TRADES_KEY, JSON.stringify(getTrades().filter(t => !idSet.has(t.id))))
 }
 
 // Screenshot stored separately to avoid bloating the trades array
@@ -383,4 +388,86 @@ export function getActiveAccount(): AccountRecord | null {
   const accounts = getAccounts()
   const id = getActiveAccountId()
   return accounts.find(a => a.id === id) ?? accounts[0] ?? null
+}
+
+// ── Setup & Mistake Tags (user-customizable) ───────────────────────────────────
+
+const SETUP_TAGS_KEY = 'tj_setup_tags'
+const MISTAKE_TAGS_KEY = 'tj_mistake_tags'
+
+export function getSetupTags(): Tag[] {
+  try {
+    const stored = localStorage.getItem(SETUP_TAGS_KEY)
+    if (stored) return JSON.parse(stored) as Tag[]
+    localStorage.setItem(SETUP_TAGS_KEY, JSON.stringify(DEFAULT_SETUP_TAGS))
+    return DEFAULT_SETUP_TAGS
+  } catch {
+    return DEFAULT_SETUP_TAGS
+  }
+}
+
+export function saveSetupTags(tags: Tag[]): void {
+  localStorage.setItem(SETUP_TAGS_KEY, JSON.stringify(tags))
+}
+
+export function getMistakeTags(): Tag[] {
+  try {
+    const stored = localStorage.getItem(MISTAKE_TAGS_KEY)
+    if (stored) return JSON.parse(stored) as Tag[]
+    localStorage.setItem(MISTAKE_TAGS_KEY, JSON.stringify(DEFAULT_MISTAKE_TAGS))
+    return DEFAULT_MISTAKE_TAGS
+  } catch {
+    return DEFAULT_MISTAKE_TAGS
+  }
+}
+
+export function saveMistakeTags(tags: Tag[]): void {
+  localStorage.setItem(MISTAKE_TAGS_KEY, JSON.stringify(tags))
+}
+
+// ── Trade Note Template ────────────────────────────────────────────────────────
+
+const NOTE_TEMPLATE_KEY = 'tj_note_template'
+
+const DEFAULT_NOTE_TEMPLATE = `Thesis:
+
+Execution:
+
+What went well:
+
+What to improve:`
+
+export function getNoteTemplate(): string {
+  return localStorage.getItem(NOTE_TEMPLATE_KEY) ?? DEFAULT_NOTE_TEMPLATE
+}
+
+export function saveNoteTemplate(template: string): void {
+  localStorage.setItem(NOTE_TEMPLATE_KEY, template)
+}
+
+// ── AI Analyses (save last 10) ─────────────────────────────────────────────────
+
+const AI_ANALYSES_KEY = 'tj_ai_analyses'
+const MAX_ANALYSES = 10
+
+export interface SavedAnalysis {
+  id: string
+  date: string     // YYYY-MM-DD
+  period: string   // e.g. 'All Time', 'Last 30 Days'
+  content: string
+}
+
+export function getAnalyses(): SavedAnalysis[] {
+  try {
+    return JSON.parse(localStorage.getItem(AI_ANALYSES_KEY) || '[]') as SavedAnalysis[]
+  } catch {
+    return []
+  }
+}
+
+export function saveAnalysis(analysis: Omit<SavedAnalysis, 'id'>): void {
+  const analyses = getAnalyses()
+  const newEntry: SavedAnalysis = { ...analysis, id: crypto.randomUUID() }
+  const updated = [newEntry, ...analyses].slice(0, MAX_ANALYSES)
+  localStorage.setItem(AI_ANALYSES_KEY, JSON.stringify(updated))
 }
