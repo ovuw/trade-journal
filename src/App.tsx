@@ -9,22 +9,26 @@ import Journal from "./pages/Journal";
 import Playbook from "./pages/Playbook";
 import News from "./pages/News";
 import Settings from "./pages/Settings";
+import UpdaterDialog from "./components/UpdaterDialog";
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="new-trade" element={<NewTrade />} />
-        <Route path="trade-log" element={<TradeLog />} />
-        <Route path="review" element={<Review />} />
-        <Route path="analytics" element={<Analytics />} />
-        <Route path="journal" element={<Journal />} />
-        <Route path="playbook" element={<Playbook />} />
-        <Route path="news" element={<News />} />
-        <Route path="settings" element={<Settings />} />
-      </Route>
-    </Routes>
+    <>
+      <UpdaterDialog />
+      <Routes>
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="new-trade" element={<NewTrade />} />
+          <Route path="trade-log" element={<TradeLog />} />
+          <Route path="review" element={<Review />} />
+          <Route path="analytics" element={<Analytics />} />
+          <Route path="journal" element={<Journal />} />
+          <Route path="playbook" element={<Playbook />} />
+          <Route path="news" element={<News />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
+      </Routes>
+    </>
   );
 }
 
