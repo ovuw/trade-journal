@@ -36,7 +36,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA0OEVBMkVDNDE3MzVDQjYKUldTMlhITkI3S0tPQkJOM3hRM2E2dmVjWGRYb1h3ZzVYQWVCRTE1UkY3dHBqWHExb2U0eWFJTisK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDgxOTM1NTQ3RjhGNjlBNjMKUldSam12YjRSMVdUZ1hDckhYMW95ZWp4cFJoUEFSL2NVUTlkaGMxV2pmNUtidHhmemRlYVlnWlEK",
       "endpoints": [
         "https://github.com/ovuw/trade-journal/releases/latest/download/latest.json"
       ]
