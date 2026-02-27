@@ -10,8 +10,10 @@ import Playbook from "./pages/Playbook";
 import News from "./pages/News";
 import Settings from "./pages/Settings";
 import UpdaterDialog from "./components/UpdaterDialog";
+import { useAutoSync } from "./hooks/useAutoSync";
 
 function App() {
+  useAutoSync();
   return (
     <>
       <UpdaterDialog />
