@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { X } from 'lucide-react'
 
 interface Option {
@@ -13,7 +14,7 @@ interface MultiTagSelectProps {
   onChange: (selected: string[]) => void
 }
 
-export default function MultiTagSelect({ label, options, selected, onChange }: MultiTagSelectProps) {
+function MultiTagSelect({ label, options, selected, onChange }: MultiTagSelectProps) {
   const toggle = (id: string) => {
     onChange(
       selected.includes(id)
@@ -53,3 +54,5 @@ export default function MultiTagSelect({ label, options, selected, onChange }: M
     </div>
   )
 }
+
+export default memo(MultiTagSelect)

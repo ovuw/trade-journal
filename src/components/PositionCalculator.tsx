@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { Calculator, AlertTriangle, TrendingUp } from 'lucide-react'
 import { getCalcSettings, saveCalcSettings } from '../lib/db'
 import type { Direction } from '../types'
@@ -11,7 +11,7 @@ interface Props {
   onFillQuantity?: (qty: number) => void
 }
 
-export default function PositionCalculator({
+function PositionCalculator({
   entryPrice,
   stopPrice,
   targetPrice,
@@ -191,3 +191,5 @@ export default function PositionCalculator({
     </div>
   )
 }
+
+export default memo(PositionCalculator)

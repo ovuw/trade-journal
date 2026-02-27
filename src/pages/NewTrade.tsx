@@ -5,6 +5,7 @@ import PositionCalculator from '../components/PositionCalculator'
 import StarRating from '../components/StarRating'
 import MultiTagSelect from '../components/MultiTagSelect'
 import { saveTrade, getTradeById, updateTrade, getRules, getScreenshots, saveScreenshots } from '../lib/db'
+import { compressImage } from '../lib/imageUtils'
 import { getSession } from '../lib/supabase'
 import { uploadTradeScreenshot } from '../lib/storage'
 import {
@@ -150,9 +151,10 @@ export default function NewTrade() {
     if (!file.type.startsWith('image/')) return
     if (screenshots.length >= MAX_SCREENSHOTS) return
     const reader = new FileReader()
-    reader.onload = e => {
+    reader.onload = async e => {
       const dataUrl = e.target?.result as string
-      setScreenshots(prev => [...prev, dataUrl])
+      const compressed = await compressImage(dataUrl)
+      setScreenshots(prev => [...prev, compressed])
     }
     reader.readAsDataURL(file)
   }
@@ -172,9 +174,9 @@ export default function NewTrade() {
     setScreenshots(prev => prev.filter((_, i) => i !== idx))
   }
 
-  const fillQuantity = (qty: number) => {
+  const fillQuantity = useCallback((qty: number) => {
     update('quantity', String(qty))
-  }
+  }, [update])
 
   const validate = (): boolean => {
     const errs: Partial<Record<keyof TradeFormData, string>> = {}

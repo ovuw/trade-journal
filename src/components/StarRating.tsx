@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Star } from 'lucide-react'
 
 interface StarRatingProps {
@@ -6,7 +7,7 @@ interface StarRatingProps {
   label?: string
 }
 
-export default function StarRating({ value, onChange, label }: StarRatingProps) {
+function StarRating({ value, onChange, label }: StarRatingProps) {
   return (
     <div>
       {label && <p className="text-xs text-text-secondary mb-1.5">{label}</p>}
@@ -32,3 +33,5 @@ export default function StarRating({ value, onChange, label }: StarRatingProps) 
     </div>
   )
 }
+
+export default memo(StarRating)

@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Plus, Upload, Download, ChevronUp, ChevronDown, ChevronsUpDown,
@@ -13,6 +13,8 @@ import {
   DEFAULT_SETUP_TAGS, DEFAULT_MISTAKE_TAGS, DEFAULT_RULES,
   type Trade, type Direction,
 } from '../types'
+
+const PAGE_SIZE = 25
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -344,6 +346,9 @@ export default function TradeLog() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [page, setPage] = useState(1)
+
+  useEffect(() => { setPage(1) }, [filters, sort])
 
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     setFilters(prev => ({ ...prev, [key]: value }))
@@ -372,6 +377,9 @@ export default function TradeLog() {
       return sort.dir === 'asc' ? cmp : -cmp
     })
   }, [filtered, sort])
+
+  const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
 
   const toggleSort = (key: SortKey) =>
     setSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })
@@ -532,7 +540,7 @@ export default function TradeLog() {
               </tr>
             </thead>
             <tbody>
-              {sorted.flatMap(trade => {
+              {paginated.flatMap(trade => {
                 const isExpanded = expandedId === trade.id
                 const setupTag = getSetupTag(trade.setup_tag_id)
                 const mistakeTags = getMistakeTags(trade.mistake_tag_ids)
@@ -615,6 +623,32 @@ export default function TradeLog() {
           </table>
         )}
       </div>
+
+      {/* Pagination */}
+      {sorted.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between px-5 py-3 border-t border-border flex-shrink-0 bg-bg-secondary">
+          <span className="text-xs text-text-secondary">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, sorted.length)} of {sorted.length} trades
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => p - 1)}
+              disabled={page === 1}
+              className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Prev
+            </button>
+            <span className="text-xs text-text-secondary">Page {page} of {totalPages}</span>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={page === totalPages}
+              className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {tradeToDelete && <DeleteConfirm trade={tradeToDelete} onConfirm={handleDelete} onCancel={() => setDeleteId(null)} />}
