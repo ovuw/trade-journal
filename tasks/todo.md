@@ -92,3 +92,21 @@ All 14 items shipped. See files modified for details.
 - [x] Push notifications — already implemented in Settings.tsx (verified, no change needed)
 
 ### Design — Consider light mode toggle (low priority — dark is a deliberate design choice for trading)
+
+## App Audit (2026-02-28)
+
+### Weak / Partial gaps — actionable items
+
+- [ ] Performance — Add `useMemo` for expensive per-render calculations in Analytics and Dashboard (stats, filtered trade lists) to prevent unnecessary recomputation on unrelated state changes
+- [ ] Performance — Debounce localStorage writes in QuickTradeModal (currently saves on every keystroke with no debounce)
+- [ ] Database — Add a localStorage schema version key (`tj_schema_version`) and a migration runner in db.ts; right now any Trade type field addition silently leaves old records with `undefined` values
+- [ ] Database — Enforce a screenshot storage budget: check localStorage usage before saving a new screenshot and warn/reject if approaching quota (localStorage limit ~5–10 MB)
+- [ ] Database — Orphaned screenshot keys: when a trade is deleted via bulk delete, `deleteScreenshots()` is not called — add cleanup to `deleteTrades()` in db.ts
+- [ ] QA / Testing — Add page-level integration tests for Analytics calculations (win rate, profit factor, streak) — currently zero tests cover page logic
+- [ ] QA / Testing — Add a Playwright or Tauri WebDriver E2E test for the critical happy path: log trade → appear in Trade Log → appear in Analytics
+- [ ] Error Monitoring — ErrorBoundary currently logs to console only; add structured error capture (at minimum, write crashes to a local log file via Tauri's `fs` plugin so errors are debuggable in production)
+- [ ] Monitoring / Observability — No crash telemetry whatsoever; consider Sentry with the Tauri integration (self-hosted or free tier) so production crashes are visible without user report
+- [ ] Caching — `getTrades()` is called independently in every page on mount with no shared cache; a lightweight in-memory cache or a TradesContext would prevent redundant localStorage parses as trade history grows
+- [ ] Accessibility — Charts (Recharts) have no accessible alternative; add `aria-label` descriptions or a data table toggle for the main Analytics charts
+- [ ] Accessibility — Profit/loss is communicated by color only (green/red); add a text indicator (e.g. "▲" / "▼" prefix or "Win"/"Loss" badge) for colorblind users
+- [ ] Security — Anthropic API key and Supabase credentials stored as plaintext in localStorage; consider using Tauri's secure storage plugin (`tauri-plugin-stronghold` or OS keychain) for sensitive credentials

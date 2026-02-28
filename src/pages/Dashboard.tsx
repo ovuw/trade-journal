@@ -368,8 +368,14 @@ export default function Dashboard() {
     return max || 1
   }, [calDays])
 
-  const checklistDone = checklistItems.filter(i => checklist[i.id]).length
-  const checklistPct = checklistItems.length > 0 ? (checklistDone / checklistItems.length) * 100 : 0
+  const checklistDone = useMemo(
+    () => checklistItems.filter(i => checklist[i.id]).length,
+    [checklistItems, checklist],
+  )
+  const checklistPct = useMemo(
+    () => checklistItems.length > 0 ? (checklistDone / checklistItems.length) * 100 : 0,
+    [checklistDone, checklistItems],
+  )
   const equityIsPositive = stats.netPnl >= 0
 
   const [onboardingComplete, setOnboardingComplete] = useState(
@@ -580,6 +586,7 @@ export default function Dashboard() {
           )}
         </div>
         {equityCurve.length > 1 ? (
+          <div role="img" aria-label="Equity curve: cumulative P&L over time">
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={equityCurve} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
               <defs>
@@ -619,6 +626,7 @@ export default function Dashboard() {
               />
             </AreaChart>
           </ResponsiveContainer>
+          </div>
         ) : (
           <div className="h-[200px] flex items-center justify-center">
             <p className="text-text-muted text-sm">No trades in this period</p>

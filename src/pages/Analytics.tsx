@@ -15,6 +15,7 @@ import {
 import { Flame, TrendingUp, BarChart2 } from 'lucide-react'
 import { getTrades, getSetupTags } from '../lib/db'
 import { Trade, AssetClass } from '../types'
+import { calcStreak, calcSetupBreakdown } from '../lib/analyticsUtils'
 
 const DEFAULT_SETUP_TAGS = getSetupTags()
 
@@ -68,14 +69,6 @@ function getHour(entry_time: string): number {
 
 // ─── Data types ───────────────────────────────────────────────────────────────
 
-interface SetupBreakdown {
-  tagId: string; name: string
-  count: number; wins: number
-  winRate: number; totalPnl: number
-  avgPnl: number; avgWin: number; avgLoss: number
-  avgR: number | null; ev: number
-}
-
 interface TickerBreakdown {
   ticker: string; count: number
   wins: number; winRate: number
@@ -97,42 +90,8 @@ interface AssetBreakdown {
 interface DowPoint { day: string; totalPnl: number; count: number; winRate: number }
 interface HourPoint { hour: number; label: string; totalPnl: number; count: number }
 interface RBucket { label: string; count: number; profit: boolean }
-interface StreakData {
-  currentStreak: number
-  currentType: 'win' | 'loss' | 'none'
-  longestWin: number
-  longestLoss: number
-}
-
 // ─── Computation helpers ──────────────────────────────────────────────────────
-
-function setupStats(ts: Trade[]): Omit<SetupBreakdown, 'tagId' | 'name'> {
-  const wins = ts.filter(t => t.pnl > 0)
-  const losses = ts.filter(t => t.pnl < 0)
-  const winRate = ts.length > 0 ? (wins.length / ts.length) * 100 : 0
-  const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
-  const avgPnl = ts.length > 0 ? totalPnl / ts.length : 0
-  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0
-  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0)) / losses.length : 0
-  const ev = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss
-  const withR = ts.filter(t => t.actual_r !== null)
-  const avgR = withR.length > 0 ? withR.reduce((s, t) => s + t.actual_r!, 0) / withR.length : null
-  return { count: ts.length, wins: wins.length, winRate, totalPnl, avgPnl, avgWin, avgLoss, avgR, ev }
-}
-
-function computeSetupBreakdown(trades: Trade[]): SetupBreakdown[] {
-  const map = new Map<string, Trade[]>()
-  for (const t of trades) {
-    if (!t.setup_tag_id) continue
-    const arr = map.get(t.setup_tag_id) ?? []
-    arr.push(t)
-    map.set(t.setup_tag_id, arr)
-  }
-  return DEFAULT_SETUP_TAGS
-    .filter(tag => map.has(tag.id))
-    .map(tag => ({ tagId: tag.id, name: tag.name, ...setupStats(map.get(tag.id)!) }))
-    .sort((a, b) => b.ev - a.ev)
-}
+// calcStreak and calcSetupBreakdown are imported from analyticsUtils
 
 function computeTickerBreakdown(trades: Trade[]): TickerBreakdown[] {
   const map = new Map<string, Trade[]>()
@@ -240,27 +199,6 @@ function computeRDistribution(trades: Trade[]): RBucket[] {
   }))
 }
 
-function computeStreaks(trades: Trade[]): StreakData {
-  const sorted = [...trades].sort((a, b) => a.entry_time.localeCompare(b.entry_time))
-  if (sorted.length === 0) return { currentStreak: 0, currentType: 'none', longestWin: 0, longestLoss: 0 }
-
-  let longestWin = 0, longestLoss = 0, tempWin = 0, tempLoss = 0
-  for (const t of sorted) {
-    if (t.pnl > 0) { tempWin++; tempLoss = 0; if (tempWin > longestWin) longestWin = tempWin }
-    else { tempLoss++; tempWin = 0; if (tempLoss > longestLoss) longestLoss = tempLoss }
-  }
-
-  const lastType = sorted[sorted.length - 1].pnl > 0 ? 'win' : 'loss'
-  let streak = 1
-  for (let i = sorted.length - 2; i >= 0; i--) {
-    const isWin = sorted[i].pnl > 0
-    if ((lastType === 'win' && isWin) || (lastType === 'loss' && !isWin)) streak++
-    else break
-  }
-
-  return { currentStreak: streak, currentType: lastType, longestWin, longestLoss }
-}
-
 // ─── Custom tooltips ──────────────────────────────────────────────────────────
 
 function PnlTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; payload: { count: number } }>; label?: string }) {
@@ -318,14 +256,14 @@ export default function Analytics() {
     [allTrades, period, customStart, customEnd],
   )
 
-  const setupBreakdown = useMemo(() => computeSetupBreakdown(filtered), [filtered])
+  const setupBreakdown = useMemo(() => calcSetupBreakdown(filtered, DEFAULT_SETUP_TAGS), [filtered])
   const tickerBreakdown = useMemo(() => computeTickerBreakdown(filtered), [filtered])
   const dirBreakdown = useMemo(() => computeDirectionBreakdown(filtered), [filtered])
   const assetBreakdown = useMemo(() => computeAssetBreakdown(filtered), [filtered])
   const dowData = useMemo(() => computeDow(filtered), [filtered])
   const hourData = useMemo(() => computeTimeOfDay(filtered), [filtered])
   const rDist = useMemo(() => computeRDistribution(filtered), [filtered])
-  const streaks = useMemo(() => computeStreaks(allTrades), [allTrades]) // streaks always use all trades
+  const streaks = useMemo(() => calcStreak(allTrades), [allTrades]) // streaks always use all trades
 
   const hasData = filtered.length > 0
 
@@ -370,13 +308,13 @@ export default function Analytics() {
       {allTrades.length > 0 && (
         <div className="bg-bg-card border border-border rounded-lg px-5 py-4 flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
-            <Flame size={16} className={streaks.currentType === 'win' ? 'text-profit' : streaks.currentType === 'loss' ? 'text-loss' : 'text-text-muted'} />
+            <Flame size={16} className={streaks.currentStreakType === 'win' ? 'text-profit' : streaks.currentStreakType === 'loss' ? 'text-loss' : 'text-text-muted'} />
             <span className="text-xs text-text-muted uppercase tracking-wide mr-1">Current Streak</span>
-            <span className={`text-lg font-mono font-bold ${streaks.currentType === 'win' ? 'text-profit' : streaks.currentType === 'loss' ? 'text-loss' : 'text-text-muted'}`}>
+            <span className={`text-lg font-mono font-bold ${streaks.currentStreakType === 'win' ? 'text-profit' : streaks.currentStreakType === 'loss' ? 'text-loss' : 'text-text-muted'}`}>
               {streaks.currentStreak}
             </span>
-            <span className={`text-sm font-medium ml-1 ${streaks.currentType === 'win' ? 'text-profit' : streaks.currentType === 'loss' ? 'text-loss' : 'text-text-muted'}`}>
-              {streaks.currentType === 'win' ? 'wins' : streaks.currentType === 'loss' ? 'losses' : '—'}
+            <span className={`text-sm font-medium ml-1 ${streaks.currentStreakType === 'win' ? 'text-profit' : streaks.currentStreakType === 'loss' ? 'text-loss' : 'text-text-muted'}`}>
+              {streaks.currentStreakType === 'win' ? 'wins' : streaks.currentStreakType === 'loss' ? 'losses' : '—'}
             </span>
           </div>
           <div className="h-6 w-px bg-border" />
@@ -559,6 +497,7 @@ export default function Analytics() {
           <div className="grid grid-cols-2 gap-5">
             {/* Day of Week */}
             <Section title="Day of Week" sub="Total P/L by trading day">
+              <div role="img" aria-label="P&L by day of week">
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={dowData} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
@@ -573,6 +512,7 @@ export default function Analytics() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </Section>
 
             {/* R-multiple distribution */}
@@ -580,6 +520,7 @@ export default function Analytics() {
               {filtered.filter(t => t.actual_r !== null).length === 0 ? (
                 <Empty message="No trades with R values yet. Add stop prices to trades to calculate R." />
               ) : (
+                <div role="img" aria-label="Trade count by R-multiple">
                 <ResponsiveContainer width="100%" height={180}>
                   <BarChart data={rDist} margin={{ top: 5, right: 5, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
@@ -593,12 +534,14 @@ export default function Analytics() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                </div>
               )}
             </Section>
           </div>
 
           {/* ── 8.3 Time of Day ── */}
           <Section title="Time of Day" sub="Total P/L by entry hour — shows which session hours are most profitable">
+            <div role="img" aria-label="P&L by time of day">
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={hourData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2a3347" vertical={false} />
@@ -613,6 +556,7 @@ export default function Analytics() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
+            </div>
             <p className="text-xs text-text-muted mt-1">Based on entry time. Market open 9:30am, close 4pm.</p>
           </Section>
 

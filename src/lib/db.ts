@@ -6,12 +6,38 @@ import { Trade, Rule, ChecklistItem, JournalEntry, Tag, DEFAULT_RULES, DEFAULT_C
 
 const TRADES_KEY = 'tj_trades'
 
+// ── Module-level cache ─────────────────────────────────────────────────────────
+let _tradesCache: Trade[] | null = null
+
 export function getTrades(): Trade[] {
+  if (_tradesCache !== null) return _tradesCache
   try {
-    return JSON.parse(localStorage.getItem(TRADES_KEY) || '[]') as Trade[]
+    _tradesCache = JSON.parse(localStorage.getItem(TRADES_KEY) || '[]') as Trade[]
+    return _tradesCache
   } catch {
-    return []
+    _tradesCache = []
+    return _tradesCache
   }
+}
+
+// ── Schema migrations ──────────────────────────────────────────────────────────
+const SCHEMA_VERSION = 1
+
+export function runMigrations(): void {
+  const current = parseInt(localStorage.getItem('tj_schema_version') ?? '0', 10)
+  if (current >= SCHEMA_VERSION) return
+  if (current < 1) {
+    // Ensure all trades have required array fields
+    const raw = JSON.parse(localStorage.getItem(TRADES_KEY) || '[]') as Record<string, unknown>[]
+    const migrated = raw.map(t => ({
+      ...t,
+      mistake_tag_ids: (t.mistake_tag_ids as string[] | undefined) ?? [],
+      rules_broken_ids: (t.rules_broken_ids as string[] | undefined) ?? [],
+    }))
+    localStorage.setItem(TRADES_KEY, JSON.stringify(migrated))
+    _tradesCache = null
+  }
+  localStorage.setItem('tj_schema_version', String(SCHEMA_VERSION))
 }
 
 export function getTradeById(id: string): Trade | null {
@@ -27,6 +53,7 @@ export function saveTrade(trade: Omit<Trade, 'id' | 'created_at' | 'updated_at'>
     updated_at: new Date().toISOString(),
   }
   trades.unshift(newTrade)
+  _tradesCache = null
   localStorage.setItem(TRADES_KEY, JSON.stringify(trades))
   return newTrade
 }
@@ -36,17 +63,23 @@ export function updateTrade(id: string, updates: Partial<Omit<Trade, 'id' | 'cre
   const idx = trades.findIndex(t => t.id === id)
   if (idx === -1) return null
   trades[idx] = { ...trades[idx], ...updates, updated_at: new Date().toISOString() }
+  _tradesCache = null
   localStorage.setItem(TRADES_KEY, JSON.stringify(trades))
   return trades[idx]
 }
 
 export function deleteTrade(id: string): void {
-  localStorage.setItem(TRADES_KEY, JSON.stringify(getTrades().filter(t => t.id !== id)))
+  const trades = getTrades().filter(t => t.id !== id)
+  _tradesCache = null
+  localStorage.setItem(TRADES_KEY, JSON.stringify(trades))
 }
 
 export function deleteTrades(ids: string[]): void {
   const idSet = new Set(ids)
-  localStorage.setItem(TRADES_KEY, JSON.stringify(getTrades().filter(t => !idSet.has(t.id))))
+  for (const id of idSet) deleteScreenshots(id)
+  const remaining = getTrades().filter(t => !idSet.has(t.id))
+  _tradesCache = null
+  localStorage.setItem(TRADES_KEY, JSON.stringify(remaining))
 }
 
 // Screenshot stored separately to avoid bloating the trades array
@@ -77,8 +110,23 @@ export function getScreenshots(tradeId: string): string[] {
   }
 }
 
+function estimateLocalStorageBytes(): number {
+  let total = 0
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i) ?? ''
+    total += (key.length + (localStorage.getItem(key)?.length ?? 0)) * 2
+  }
+  return total
+}
+
 export function saveScreenshots(tradeId: string, urls: string[]): void {
-  localStorage.setItem(`tj_screenshots_${tradeId}`, JSON.stringify(urls.slice(0, MAX_SCREENSHOTS)))
+  const toSave = urls.slice(0, MAX_SCREENSHOTS)
+  const incoming = JSON.stringify(toSave).length * 2
+  const used = estimateLocalStorageBytes()
+  if (used + incoming > 8 * 1024 * 1024) {
+    throw new Error('Storage full: remove some screenshots to free space.')
+  }
+  localStorage.setItem(`tj_screenshots_${tradeId}`, JSON.stringify(toSave))
 }
 
 export function deleteScreenshots(tradeId: string): void {
@@ -314,6 +362,7 @@ export function saveReminderSettings(s: ReminderSettings): void {
 
 // ── Bulk replace trades (used after sync merge) ─────────────────────────────────
 export function replaceTrades(trades: Trade[]): void {
+  _tradesCache = null
   localStorage.setItem(TRADES_KEY, JSON.stringify(trades))
 }
 

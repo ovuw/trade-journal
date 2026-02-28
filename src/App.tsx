@@ -8,6 +8,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { ToastProvider } from "./components/Toast";
 import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal";
+import { runMigrations } from "./lib/db";
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const NewTrade    = lazy(() => import('./pages/NewTrade'))
@@ -30,6 +31,7 @@ function PageLoader() {
 }
 
 function App() {
+  runMigrations()
   useAutoSync();
   usePreMarketReminder();
   useKeyboardShortcuts();

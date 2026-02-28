@@ -58,10 +58,18 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
 
   const setupTags = useMemo(() => getSetupTags(), [])
   const dialogRef = useRef<HTMLDivElement>(null)
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Capture latest onClose in a ref so the keydown effect doesn't need to re-register
   const onCloseRef = useRef(onClose)
   useEffect(() => { onCloseRef.current = onClose })
+
+  // Clear debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    }
+  }, [])
 
   // Escape to close + Tab focus trap
   useEffect(() => {
@@ -89,11 +97,14 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [])
 
-  // Persist draft on every field change (clear on save, persist on Escape)
+  // Persist draft on field change — debounced 400ms to avoid writing on every keystroke
   function update<K extends keyof Fields>(key: K, value: Fields[K]) {
     setForm(prev => {
       const next = { ...prev, [key]: value }
-      try { localStorage.setItem(DRAFT_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+      draftSaveTimer.current = setTimeout(() => {
+        try { localStorage.setItem(DRAFT_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+      }, 400)
       return next
     })
     setErrors(prev => ({ ...prev, [key]: undefined }))

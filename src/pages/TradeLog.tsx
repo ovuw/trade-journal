@@ -407,9 +407,12 @@ export default function TradeLog() {
   const toggleSort = (key: SortKey) =>
     setSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })
 
-  const totalPnl = sorted.reduce((s, t) => s + t.pnl, 0)
-  const winners = sorted.filter(t => t.pnl > 0).length
-  const winRate = sorted.length > 0 ? (winners / sorted.length) * 100 : 0
+  const { totalPnl, winRate } = useMemo(() => {
+    const totalPnl = sorted.reduce((s, t) => s + t.pnl, 0)
+    const winners = sorted.filter(t => t.pnl > 0).length
+    const winRate = sorted.length > 0 ? (winners / sorted.length) * 100 : 0
+    return { totalPnl, winRate }
+  }, [sorted])
 
   // Keyboard navigation
   useEffect(() => {

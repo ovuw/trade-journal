@@ -261,7 +261,11 @@ export default function NewTrade() {
           screenshot_id: null,
           session: detectSession(form.entry_time),
         })
-        saveScreenshots(editId, screenshots)
+        try {
+          saveScreenshots(editId, screenshots)
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : 'Failed to save screenshots', 'error')
+        }
         void getSession().then(s => {
           if (s) {
             const updated = getTradeById(editId)
@@ -301,7 +305,11 @@ export default function NewTrade() {
           screenshot_id: null,
           session: detectSession(form.entry_time),
         })
-        saveScreenshots(trade.id, screenshots)
+        try {
+          saveScreenshots(trade.id, screenshots)
+        } catch (err) {
+          showToast(err instanceof Error ? err.message : 'Failed to save screenshots', 'error')
+        }
         void getSession().then(s => {
           if (s) {
             void pushTrade(trade, s.user.id)
