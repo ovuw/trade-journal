@@ -30,7 +30,7 @@ export function exportTradesToCsv(trades: Trade[]): string {
     return [
       t.ticker, t.direction, t.asset_class, t.entry_time, t.exit_time,
       t.quantity, t.entry_price, t.exit_price, t.stop_price ?? '', t.target_price ?? '',
-      t.fees, t.pnl.toFixed(2), t.result_pct.toFixed(4),
+      t.fees, t.pnl?.toFixed(2) ?? '', t.result_pct?.toFixed(4) ?? '',
       t.actual_r?.toFixed(2) ?? '', t.planned_rr?.toFixed(2) ?? '',
       setupTag, mistakeTags, rulesBroken,
       t.emotion_entry, t.emotion_exit, t.confidence,

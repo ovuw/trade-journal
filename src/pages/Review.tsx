@@ -136,9 +136,9 @@ function computeRuleStats(trades: Trade[], rules: Rule[]): RuleStat[] {
     for (const ruleId of (t.rules_broken_ids || [])) {
       const cur = map.get(ruleId) ?? { totalCost: 0, costOnLosers: 0, costOnWinners: 0, trades: [] }
       map.set(ruleId, {
-        totalCost: cur.totalCost + t.pnl,
-        costOnLosers: cur.costOnLosers + (t.pnl < 0 ? t.pnl : 0),
-        costOnWinners: cur.costOnWinners + (t.pnl > 0 ? t.pnl : 0),
+        totalCost: cur.totalCost + (t.pnl ?? 0),
+        costOnLosers: cur.costOnLosers + ((t.pnl ?? 0) < 0 ? (t.pnl ?? 0) : 0),
+        costOnWinners: cur.costOnWinners + ((t.pnl ?? 0) > 0 ? (t.pnl ?? 0) : 0),
         trades: [...cur.trades, t],
       })
     }
@@ -156,7 +156,7 @@ function computeRuleStats(trades: Trade[], rules: Rule[]): RuleStat[] {
         costOnLosers: data.costOnLosers,
         costOnWinners: data.costOnWinners,
         violationRate: (data.trades.length / total) * 100,
-        trades: [...data.trades].sort((a, b) => a.pnl - b.pnl),
+        trades: [...data.trades].sort((a, b) => (a.pnl ?? 0) - (b.pnl ?? 0)),
       }
     })
     .filter(Boolean)
@@ -164,8 +164,8 @@ function computeRuleStats(trades: Trade[], rules: Rule[]): RuleStat[] {
 }
 
 function computeWinLossComparison(trades: Trade[], rules: Rule[]): WinLossRule[] {
-  const wins = trades.filter(t => t.pnl > 0)
-  const losses = trades.filter(t => t.pnl <= 0)
+  const wins = trades.filter(t => (t.pnl ?? 0) > 0)
+  const losses = trades.filter(t => (t.pnl ?? 0) <= 0)
   if (!wins.length && !losses.length) return []
 
   return rules.map(r => {
@@ -183,7 +183,7 @@ function computeMistakeStats(trades: Trade[]): MistakeStat[] {
   for (const t of trades) {
     for (const tagId of (t.mistake_tag_ids || [])) {
       const cur = map.get(tagId) ?? { count: 0, totalCost: 0 }
-      map.set(tagId, { count: cur.count + 1, totalCost: cur.totalCost + t.pnl })
+      map.set(tagId, { count: cur.count + 1, totalCost: cur.totalCost + (t.pnl ?? 0) })
     }
   }
   return DEFAULT_MISTAKE_TAGS
@@ -259,8 +259,8 @@ function computeChecklistAdherence(trades: Trade[]): ChecklistGroup[] {
   }
 
   function makeGroup(label: string, ts: Trade[], dayCount: number): ChecklistGroup {
-    const wins = ts.filter(t => t.pnl > 0)
-    const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
+    const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+    const totalPnl = ts.reduce((s, t) => s + (t.pnl ?? 0), 0)
     return {
       label,
       dayCount,
@@ -309,12 +309,12 @@ function computeReportCard(allTrades: Trade[]): ReportCard[] {
 
   function cardFor(label: string, ts: Trade[]): ReportCard | null {
     if (ts.length === 0) return null
-    const wins = ts.filter(t => t.pnl > 0)
-    const losses = ts.filter(t => t.pnl < 0)
-    const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
+    const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+    const losses = ts.filter(t => (t.pnl ?? 0) < 0)
+    const totalPnl = ts.reduce((s, t) => s + (t.pnl ?? 0), 0)
     const winRate = (wins.length / ts.length) * 100
-    const grossWin = wins.reduce((s, t) => s + t.pnl, 0)
-    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0))
+    const grossWin = wins.reduce((s, t) => s + (t.pnl ?? 0), 0)
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + (t.pnl ?? 0), 0))
     const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 999 : 0
     const tradesWith = ts.filter(t => (t.rules_broken_ids || []).length > 0).length
     const violationRate = ts.length > 0 ? (tradesWith / ts.length) * 100 : 0
@@ -369,7 +369,7 @@ function buildEmotionScatter(trades: Trade[]): EmotionPoint[] {
     .map(t => ({
       // Stable jitter using trade id to prevent re-renders
       x: t.emotion_entry + (t.id.charCodeAt(0) % 20 - 10) / 60,
-      y: Math.round(t.pnl * 100) / 100,
+      y: Math.round((t.pnl ?? 0) * 100) / 100,
       ticker: t.ticker,
       emotion: t.emotion_entry,
     }))
@@ -438,20 +438,20 @@ export default function Review() {
   const allTrades = useMemo(() => getTrades(), [])
   const rules = useMemo(() => getRules(), [])
   const filtered = useMemo(
-    () => filterTrades(allTrades, period, customStart, customEnd),
+    () => filterTrades(allTrades, period, customStart, customEnd).filter(t => t.pnl !== null),
     [allTrades, period, customStart, customEnd],
   )
 
   const ruleStats = useMemo(() => computeRuleStats(filtered, rules), [filtered, rules])
   const winLossRules = useMemo(() => computeWinLossComparison(filtered, rules), [filtered, rules])
   const mistakeStats = useMemo(() => computeMistakeStats(filtered), [filtered])
-  const weeklyTrend = useMemo(() => groupByWeek(allTrades), [allTrades]) // always all-time for trend
+  const weeklyTrend = useMemo(() => groupByWeek(allTrades.filter(t => t.pnl !== null)), [allTrades]) // always all-time for trend
   const emotionScatter = useMemo(() => buildEmotionScatter(filtered), [filtered])
   const checklistAdherence = useMemo(() => computeChecklistAdherence(filtered), [filtered])
-  const reportCards = useMemo(() => computeReportCard(allTrades), [allTrades])
+  const reportCards = useMemo(() => computeReportCard(allTrades.filter(t => t.pnl !== null)), [allTrades])
 
-  const wins = filtered.filter(t => t.pnl > 0)
-  const losses = filtered.filter(t => t.pnl <= 0)
+  const wins = filtered.filter(t => (t.pnl ?? 0) > 0)
+  const losses = filtered.filter(t => t.pnl !== null && (t.pnl ?? 0) <= 0)
   const avgRulesOnWins = wins.length > 0
     ? wins.reduce((s, t) => s + (t.rules_broken_ids || []).length, 0) / wins.length
     : 0
@@ -626,8 +626,8 @@ export default function Review() {
                                 <span className="text-text-muted italic truncate max-w-[200px]">{t.notes.slice(0, 60)}{t.notes.length > 60 ? '…' : ''}</span>
                               )}
                             </div>
-                            <span className={`font-mono font-semibold ${pnlClass(t.pnl)}`}>
-                              {fmtPnl(t.pnl)}
+                            <span className={`font-mono font-semibold ${pnlClass(t.pnl ?? 0)}`}>
+                              {fmtPnl(t.pnl ?? 0)}
                             </span>
                           </div>
                         ))}

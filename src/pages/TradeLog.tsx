@@ -7,7 +7,7 @@ import {
   Trash2, Pencil, Image, X, AlertTriangle, ChevronRight, ChevronDown as ExpandIcon,
   FileText,
 } from 'lucide-react'
-import { getTrades, deleteTrade, deleteTrades, saveTrade, getScreenshots, deleteScreenshots, getSetupTags, getMistakeTags } from '../lib/db'
+import { getTrades, deleteTrade, deleteTrades, saveTrade, updateTrade, getScreenshots, deleteScreenshots, getSetupTags, getMistakeTags } from '../lib/db'
 import { getStorageScreenshotUrl, deleteStorageScreenshot } from '../lib/storage'
 import { exportTradesToCsv, downloadCsv, CSV_TEMPLATE_EXAMPLE } from '../lib/csvExport'
 import { parseCsv, type ParsedTrade } from '../lib/csvImport'
@@ -15,6 +15,7 @@ import {
   DEFAULT_RULES,
   type Trade, type Direction,
 } from '../types'
+import { calcPnl, calcResultPct, nowLocal } from '../lib/tradeUtils'
 
 const SETUP_TAGS = getSetupTags()
 const MISTAKE_TAGS = getMistakeTags()
@@ -132,8 +133,8 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
     if (!preview || preview.length === 0) return
     preview.forEach(p => {
       const entry = p.entry_price, exit = p.exit_price, qty = p.quantity, fees = p.fees
-      const pnl = p.direction === 'long' ? (exit - entry) * qty - fees : (entry - exit) * qty - fees
-      const result_pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
+      const pnl = calcPnl(p.direction, entry, exit, qty, fees)
+      const result_pct = calcResultPct(pnl, entry, qty)
       const stopDist = p.stop_price ? Math.abs(entry - p.stop_price) : null
       const planned_rr = stopDist && p.target_price ? Math.abs(p.target_price - entry) / stopDist : null
       const initial_risk = stopDist ? stopDist * qty : null
@@ -262,8 +263,8 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
 
 // ─── Expanded row ─────────────────────────────────────────────────────────────
 
-function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
-  trade: Trade; colSpan: number; onEdit: () => void; onDelete: () => void
+function ExpandedRow({ trade, colSpan, onEdit, onDelete, onCloseTrade }: {
+  trade: Trade; colSpan: number; onEdit: () => void; onDelete: () => void; onCloseTrade?: () => void
 }) {
   const multiScreenshots = getScreenshots(trade.id)
   const storageShot = trade.screenshot_id ? getStorageScreenshotUrl(trade.screenshot_id) : null
@@ -272,6 +273,24 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
     : multiScreenshots
   const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
   const rulesBroken = getRuleItems(trade.rules_broken_ids)
+
+  const [showCloseForm, setShowCloseForm] = useState(false)
+  const [closeExitPrice, setCloseExitPrice] = useState('')
+  const [closeExitTime, setCloseExitTime] = useState(nowLocal())
+
+  function handleClose() {
+    const exitPrice = parseFloat(closeExitPrice)
+    if (!exitPrice) return
+    const pnl = calcPnl(trade.direction, trade.entry_price, exitPrice, trade.quantity, trade.fees)
+    const result_pct = calcResultPct(pnl, trade.entry_price, trade.quantity)
+    updateTrade(trade.id, {
+      exit_price: exitPrice,
+      exit_time: closeExitTime || nowLocal(),
+      pnl,
+      result_pct,
+    })
+    onCloseTrade?.()
+  }
 
   return (
     <tr className="bg-bg-secondary border-b border-border">
@@ -329,6 +348,60 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
               {trade.emotion_entry > 0 && <span><span className="text-text-secondary text-xs">Emotion entry→exit </span><span className="font-mono">{trade.emotion_entry}→{trade.emotion_exit}</span></span>}
               {trade.confidence > 0 && <span><span className="text-text-secondary text-xs">Confidence </span><span className="font-mono">{trade.confidence}/5</span></span>}
             </div>
+            {/* Close Trade inline form — only for open positions */}
+            {trade.exit_price === null && (
+              <div className="border-t border-border pt-3">
+                {showCloseForm ? (
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <div>
+                      <label className="text-xs text-text-secondary block mb-1">Exit Price</label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-text-secondary text-xs" aria-hidden="true">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={closeExitPrice}
+                          onChange={e => setCloseExitPrice(e.target.value)}
+                          placeholder="0.00"
+                          autoFocus
+                          className="input pl-5 font-mono text-sm w-28"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-secondary block mb-1">Exit Time</label>
+                      <input
+                        type="datetime-local"
+                        value={closeExitTime}
+                        onChange={e => setCloseExitTime(e.target.value)}
+                        className="input text-sm w-44"
+                      />
+                    </div>
+                    <button
+                      onClick={handleClose}
+                      disabled={!closeExitPrice}
+                      className="btn-primary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Confirm Close
+                    </button>
+                    <button
+                      onClick={() => setShowCloseForm(false)}
+                      className="btn-secondary text-xs px-3 py-1.5"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCloseForm(true)}
+                    className="text-xs text-accent hover:underline underline-offset-2"
+                  >
+                    Close this position →
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-2 flex-shrink-0">
             <button onClick={onEdit} className="flex items-center gap-1.5 text-xs text-accent hover:underline whitespace-nowrap"><Pencil size={12} /> Edit trade</button>
@@ -393,12 +466,17 @@ export default function TradeLog() {
   }, [allTrades, filters])
 
   const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => {
+    // Open positions always float to the top, sorted by entry_time desc
+    const open = filtered
+      .filter(t => t.exit_price === null)
+      .sort((a, b) => b.entry_time.localeCompare(a.entry_time))
+    const closed = filtered.filter(t => t.exit_price !== null).sort((a, b) => {
       const av = (a[sort.key] ?? -Infinity) as number | string
       const bv = (b[sort.key] ?? -Infinity) as number | string
       const cmp = av < bv ? -1 : av > bv ? 1 : 0
       return sort.dir === 'asc' ? cmp : -cmp
     })
+    return [...open, ...closed]
   }, [filtered, sort])
 
   const paginated = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -407,11 +485,12 @@ export default function TradeLog() {
   const toggleSort = (key: SortKey) =>
     setSort(prev => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' })
 
-  const { totalPnl, winRate } = useMemo(() => {
-    const totalPnl = sorted.reduce((s, t) => s + t.pnl, 0)
-    const winners = sorted.filter(t => t.pnl > 0).length
-    const winRate = sorted.length > 0 ? (winners / sorted.length) * 100 : 0
-    return { totalPnl, winRate }
+  const { totalPnl, winRate, closedCount } = useMemo(() => {
+    const closed = sorted.filter(t => t.pnl !== null)
+    const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0)
+    const winners = closed.filter(t => (t.pnl ?? 0) > 0).length
+    const winRate = closed.length > 0 ? (winners / closed.length) * 100 : 0
+    return { totalPnl, winRate, closedCount: closed.length }
   }, [sorted])
 
   // Keyboard navigation
@@ -520,7 +599,7 @@ export default function TradeLog() {
             <h1 className="text-2xl font-semibold text-text-primary">Trade Log</h1>
             <p className="text-text-secondary text-sm mt-0.5">
               {sorted.length} trade{sorted.length !== 1 ? 's' : ''}
-              {sorted.length > 0 && <>
+              {closedCount > 0 && <>
                 <span className="mx-2 opacity-40">·</span>
                 P/L: <span className={`font-medium ${totalPnl >= 0 ? 'text-profit' : 'text-loss'}`}>{fmt$(totalPnl)}</span>
                 <span className="mx-2 opacity-40">·</span>
@@ -684,7 +763,9 @@ export default function TradeLog() {
                 const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
                 const rulesBrokenCount = trade.rules_broken_ids.length
                 const hasShot = getScreenshots(trade.id).length > 0 || !!trade.screenshot_id
-                const isProfit = trade.pnl >= 0
+                const isOpen = trade.exit_price === null
+                const isProfit = !isOpen && trade.pnl !== null && trade.pnl >= 0
+                const borderColorClass = isOpen ? 'border-l-accent/50' : isProfit ? 'border-l-profit/50' : 'border-l-loss/50'
 
                 const mainRow = (
                   <tr
@@ -696,7 +777,7 @@ export default function TradeLog() {
                     tabIndex={0}
                     onClick={() => { setExpandedId(isExpanded ? null : trade.id); setFocusedRowIndex(rowIdx) }}
                     onFocus={() => setFocusedRowIndex(rowIdx)}
-                    className={`border-b border-border cursor-pointer transition-colors hover:bg-bg-hover group ${isProfit ? 'border-l-2 border-l-profit/50' : 'border-l-2 border-l-loss/50'} ${isFocused ? 'ring-1 ring-inset ring-accent/50 bg-bg-hover' : ''}`}
+                    className={`border-b border-border cursor-pointer transition-colors hover:bg-bg-hover group border-l-2 ${borderColorClass} ${isFocused ? 'ring-1 ring-inset ring-accent/50 bg-bg-hover' : ''}`}
                   >
                     <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                       <input
@@ -720,7 +801,12 @@ export default function TradeLog() {
                       <div className="text-xs text-text-primary">{fmtDate(trade.entry_time)}</div>
                       <div className="text-xs text-text-muted flex items-center gap-1">
                         {fmtTime(trade.entry_time)}
-                        {trade.session && (
+                        {isOpen && (
+                          <span className="text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide bg-accent/15 text-accent">
+                            OPEN
+                          </span>
+                        )}
+                        {!isOpen && trade.session && (
                           <span className={`text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide ${
                             trade.session === 'pre-market' ? 'bg-warning/15 text-warning' :
                             trade.session === 'rth' ? 'bg-profit/15 text-profit' :
@@ -734,10 +820,18 @@ export default function TradeLog() {
                     <td className="px-3 py-2.5"><DirectionBadge dir={trade.direction} /></td>
                     <td className="px-3 py-2.5 font-mono text-sm text-text-primary">{trade.quantity.toLocaleString()}</td>
                     <td className="px-3 py-2.5 font-mono text-sm text-text-secondary">${trade.entry_price.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 font-mono text-sm text-text-secondary">${trade.exit_price.toFixed(2)}</td>
+                    <td className="px-3 py-2.5 font-mono text-sm text-text-secondary">
+                      {trade.exit_price != null ? `$${trade.exit_price.toFixed(2)}` : <span className="text-text-muted">—</span>}
+                    </td>
                     <td className="px-3 py-2.5">
-                      <div className={`font-mono text-sm font-semibold ${isProfit ? 'text-profit' : 'text-loss'}`}>{fmt$(trade.pnl)}</div>
-                      <div className={`text-xs font-mono ${isProfit ? 'text-profit/80' : 'text-loss/80'}`}>{trade.result_pct >= 0 ? '+' : ''}{trade.result_pct.toFixed(2)}%</div>
+                      {trade.pnl !== null ? (
+                        <>
+                          <div className={`font-mono text-sm font-semibold ${isProfit ? 'text-profit' : 'text-loss'}`}>{fmt$(trade.pnl)}</div>
+                          <div className={`text-xs font-mono ${isProfit ? 'text-profit/80' : 'text-loss/80'}`}>{(trade.result_pct ?? 0) >= 0 ? '+' : ''}{(trade.result_pct ?? 0).toFixed(2)}%</div>
+                        </>
+                      ) : (
+                        <span className="text-text-muted font-mono text-sm">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-sm">
                       {trade.actual_r != null
@@ -779,6 +873,7 @@ export default function TradeLog() {
                     colSpan={COL_SPAN}
                     onEdit={() => navigate(`/new-trade?id=${trade.id}`)}
                     onDelete={() => setDeleteId(trade.id)}
+                    onCloseTrade={() => { setAllTrades(getTrades()); setExpandedId(null) }}
                   />,
                 ]
               })}

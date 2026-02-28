@@ -7,16 +7,20 @@ interface Props {
   entryPrice: number | null
   stopPrice: number | null
   targetPrice: number | null
+  quantity: number | null
   direction: Direction
   onFillQuantity?: (qty: number) => void
+  onFillStop?: (stop: number) => void
 }
 
 function PositionCalculator({
   entryPrice,
   stopPrice,
   targetPrice,
+  quantity,
   direction,
   onFillQuantity,
+  onFillStop,
 }: Props) {
   const saved = getCalcSettings()
   const [accountBalance, setAccountBalance] = useState(String(saved.accountBalance ?? 10000))
@@ -47,6 +51,18 @@ function PositionCalculator({
       ? Math.abs(targetPrice - entryPrice) / stopDistance
       : null
 
+  // Implied stop: entry + quantity → what stop keeps risk within budget
+  const impliedStopDistance =
+    entryPrice != null && quantity != null && quantity > 0 && stopPrice == null
+      ? riskDollars / quantity
+      : null
+  const impliedStop =
+    impliedStopDistance != null && entryPrice != null
+      ? direction === 'long'
+        ? entryPrice - impliedStopDistance
+        : entryPrice + impliedStopDistance
+      : null
+
   // Validation
   const stopOnWrongSide =
     entryPrice != null &&
@@ -55,7 +71,6 @@ function PositionCalculator({
       (direction === 'short' && stopPrice <= entryPrice))
 
   const hasEntry = entryPrice != null
-  const hasStop = stopPrice != null
 
   return (
     <div className="sticky top-6 bg-bg-card border border-border rounded-lg overflow-hidden">
@@ -105,15 +120,28 @@ function PositionCalculator({
             <span className="text-text-secondary">Risk amount</span>
             <span className="text-text-primary font-mono font-medium">${riskDollars.toFixed(2)}</span>
           </div>
-          {stopDistance != null ? (
+          {entryPrice != null && quantity != null && quantity > 0 && (
             <div className="flex justify-between">
-              <span className="text-text-secondary">Stop distance</span>
-              <span className="text-text-primary font-mono">${stopDistance.toFixed(3)}/sh</span>
+              <span className="text-text-secondary">Position value</span>
+              <span className="text-text-primary font-mono">${(entryPrice * quantity).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
+          )}
+          {stopDistance != null ? (
+            <>
+              <div className="flex justify-between">
+                <span className="text-text-secondary">Stop distance</span>
+                <span className="text-text-primary font-mono">${stopDistance.toFixed(3)}/sh</span>
+              </div>
+              {entryPrice != null && entryPrice > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-text-secondary">Stop %</span>
+                  <span className="text-loss font-mono">{((stopDistance / entryPrice) * 100).toFixed(2)}% from entry</span>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-xs text-text-muted">
-              {!hasEntry ? 'Enter entry price' : !hasStop ? 'Enter stop price' : ''}
-              {!hasEntry || !hasStop ? ' to calculate' : ''}
+              {!hasEntry ? 'Enter entry price' : 'Enter stop price or quantity to calculate'}
             </p>
           )}
         </div>
@@ -143,6 +171,30 @@ function PositionCalculator({
                 className="mt-2 text-xs text-accent hover:underline"
               >
                 Fill quantity ↗
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Implied stop (reverse calc: entry + qty → stop) */}
+        {impliedStop != null && (
+          <div className="border border-border rounded-lg p-3 text-center">
+            <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">Implied Stop Price</p>
+            <p className="text-4xl font-bold text-text-primary font-mono">
+              ${impliedStop.toFixed(2)}
+            </p>
+            <p className="text-xs text-text-secondary mt-1">
+              {entryPrice != null && entryPrice > 0
+                ? `${((Math.abs(impliedStop - entryPrice) / entryPrice) * 100).toFixed(2)}% from entry · within risk limit`
+                : 'to stay within risk limit'}
+            </p>
+            {onFillStop && (
+              <button
+                type="button"
+                onClick={() => onFillStop(parseFloat(impliedStop.toFixed(2)))}
+                className="mt-2 text-xs text-accent hover:underline"
+              >
+                Apply stop ↗
               </button>
             )}
           </div>

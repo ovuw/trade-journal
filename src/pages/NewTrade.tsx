@@ -15,7 +15,7 @@ import {
   type Direction,
   type AssetClass,
 } from '../types'
-import { detectSession, nowLocal } from '../lib/tradeUtils'
+import { detectSession, nowLocal, calcPnl, calcResultPct } from '../lib/tradeUtils'
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
 
@@ -132,13 +132,13 @@ export default function NewTrade() {
           direction: t.direction,
           asset_class: t.asset_class,
           entry_price: String(t.entry_price),
-          exit_price: String(t.exit_price),
+          exit_price: t.exit_price != null ? String(t.exit_price) : '',
           stop_price: t.stop_price != null ? String(t.stop_price) : '',
           target_price: t.target_price != null ? String(t.target_price) : '',
           quantity: String(t.quantity),
           fees: String(t.fees),
           entry_time: t.entry_time.slice(0, 16),
-          exit_time: t.exit_time.slice(0, 16),
+          exit_time: t.exit_time != null ? t.exit_time.slice(0, 16) : nowLocal(),
           setup_tag_id: t.setup_tag_id,
           mistake_tag_ids: t.mistake_tag_ids,
           rules_broken_ids: t.rules_broken_ids,
@@ -200,11 +200,11 @@ export default function NewTrade() {
     update('quantity', String(qty))
   }, [update])
 
-  const validate = (): boolean => {
+  const validate = (requireExit = true): boolean => {
     const errs: Partial<Record<keyof TradeFormData, string>> = {}
     if (!form.ticker.trim()) errs.ticker = 'Required'
     if (!form.entry_price) errs.entry_price = 'Required'
-    if (!form.exit_price) errs.exit_price = 'Required'
+    if (requireExit && !form.exit_price) errs.exit_price = 'Required'
     if (!form.quantity) errs.quantity = 'Required'
     if (!form.entry_time) errs.entry_time = 'Required'
     setErrors(errs)
@@ -213,24 +213,25 @@ export default function NewTrade() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validate()) return
+    if (!validate(false)) return
     setSubmitError(null)
 
     const entry = parseFloat(form.entry_price)
-    const exit = parseFloat(form.exit_price)
     const qty = parseFloat(form.quantity)
     const fees = parseFloat(form.fees) || 0
     const stop = form.stop_price ? parseFloat(form.stop_price) : null
     const target = form.target_price ? parseFloat(form.target_price) : null
 
-    const pnl = form.direction === 'long' ? (exit - entry) * qty - fees : (entry - exit) * qty - fees
-    const result_pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
+    const isOpen = !form.exit_price
+    const exit = isOpen ? null : parseFloat(form.exit_price)
+    const pnl = isOpen || exit === null ? null : calcPnl(form.direction, entry, exit, qty, fees)
+    const result_pct = pnl === null ? null : calcResultPct(pnl, entry, qty)
 
     const stopDist = stop ? Math.abs(entry - stop) : null
     const planned_rr =
       stopDist && target ? Math.abs(target - entry) / stopDist : null
     const initial_risk = stopDist ? stopDist * qty : null
-    const actual_r = initial_risk && initial_risk > 0 ? pnl / initial_risk : null
+    const actual_r = initial_risk && initial_risk > 0 && pnl !== null ? pnl / initial_risk : null
 
     try {
       if (isEdit && editId) {
@@ -247,7 +248,7 @@ export default function NewTrade() {
           planned_rr,
           actual_r,
           entry_time: form.entry_time,
-          exit_time: form.exit_time || form.entry_time,
+          exit_time: isOpen ? null : (form.exit_time || form.entry_time),
           setup_tag_id: form.setup_tag_id,
           mistake_tag_ids: form.mistake_tag_ids,
           rules_broken_ids: form.rules_broken_ids,
@@ -291,7 +292,7 @@ export default function NewTrade() {
           planned_rr,
           actual_r,
           entry_time: form.entry_time,
-          exit_time: form.exit_time || form.entry_time,
+          exit_time: isOpen ? null : (form.exit_time || form.entry_time),
           setup_tag_id: form.setup_tag_id,
           mistake_tag_ids: form.mistake_tag_ids,
           rules_broken_ids: form.rules_broken_ids,
@@ -333,6 +334,7 @@ export default function NewTrade() {
   const entryNum = parseFloat(form.entry_price) || null
   const stopNum = parseFloat(form.stop_price) || null
   const targetNum = parseFloat(form.target_price) || null
+  const quantityNum = parseFloat(form.quantity) || null
 
   // Autosave draft to localStorage on every form change (new trade only)
   useEffect(() => {
@@ -376,7 +378,7 @@ export default function NewTrade() {
               {isEdit ? 'Edit Trade' : 'New Trade'}
             </h1>
             <p className="text-text-secondary text-sm mt-0.5">
-              {isEdit ? 'Update your trade details' : 'Log a completed trade'}
+              {isEdit ? 'Update your trade details' : 'Log a trade — save closed or open'}
             </p>
           </div>
 
@@ -511,7 +513,6 @@ export default function NewTrade() {
                     label="Exit Price"
                     value={form.exit_price}
                     onChange={v => update('exit_price', v)}
-                    required
                   />
                   {errors.exit_price && <p className="text-xs text-loss mt-1">{errors.exit_price}</p>}
                 </div>
@@ -567,7 +568,7 @@ export default function NewTrade() {
                 </div>
               </div>
 
-              {/* Computed P/L preview */}
+              {/* Computed P/L preview — only when exit is filled */}
               {form.entry_price && form.exit_price && form.quantity && (
                 <div className="border-t border-border pt-3">
                   {(() => {
@@ -747,7 +748,7 @@ export default function NewTrade() {
               Cancel
             </button>
             <button type="submit" className="btn-primary px-6">
-              {isEdit ? 'Update Trade' : 'Save Trade'}
+              {isEdit ? 'Update Trade' : form.exit_price ? 'Save Trade' : 'Save Open Position'}
             </button>
           </div>
         </div>
@@ -758,8 +759,10 @@ export default function NewTrade() {
             entryPrice={entryNum}
             stopPrice={stopNum}
             targetPrice={targetNum}
+            quantity={quantityNum}
             direction={form.direction}
             onFillQuantity={fillQuantity}
+            onFillStop={v => update('stop_price', String(v))}
           />
         </div>
       </div>

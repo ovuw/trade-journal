@@ -63,13 +63,13 @@ export interface Trade {
   direction: Direction
   asset_class: AssetClass
   entry_price: number
-  exit_price: number
+  exit_price: number | null    // null = open position
   stop_price: number | null
   target_price: number | null
   quantity: number
   fees: number
   entry_time: string
-  exit_time: string
+  exit_time: string | null     // null = open position
   setup_tag_id: string
   mistake_tag_ids: string[]
   rules_broken_ids: string[]
@@ -78,12 +78,13 @@ export interface Trade {
   emotion_exit: number
   confidence: number
   notes: string
-  pnl: number
-  result_pct: number
+  pnl: number | null           // null = not yet realized
+  result_pct: number | null    // null = not yet realized
   planned_rr: number | null
   actual_r: number | null
   screenshot_id: string | null
   session?: TradingSession
+  ibkr_transaction_id?: string | null
   created_at: string
   updated_at: string
 }

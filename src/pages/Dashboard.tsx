@@ -143,12 +143,12 @@ function computeStats(trades: Trade[]): Stats {
   if (trades.length === 0) {
     return { netPnl: 0, winRate: 0, profitFactor: 0, avgWin: 0, avgLoss: 0, maxDrawdown: 0, totalTrades: 0, wins: 0, losses: 0 }
   }
-  const winList = trades.filter(t => t.pnl > 0)
-  const lossList = trades.filter(t => t.pnl <= 0)
-  const netPnl = trades.reduce((s, t) => s + t.pnl, 0)
+  const winList = trades.filter(t => (t.pnl ?? 0) > 0)
+  const lossList = trades.filter(t => (t.pnl ?? 0) < 0)
+  const netPnl = trades.reduce((s, t) => s + (t.pnl ?? 0), 0)
   const winRate = (winList.length / trades.length) * 100
-  const grossProfit = winList.reduce((s, t) => s + t.pnl, 0)
-  const grossLoss = Math.abs(lossList.reduce((s, t) => s + t.pnl, 0))
+  const grossProfit = winList.reduce((s, t) => s + (t.pnl ?? 0), 0)
+  const grossLoss = Math.abs(lossList.reduce((s, t) => s + (t.pnl ?? 0), 0))
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : winList.length > 0 ? 999 : 0
   const avgWin = winList.length > 0 ? grossProfit / winList.length : 0
   const avgLoss = lossList.length > 0 ? grossLoss / lossList.length : 0
@@ -156,7 +156,7 @@ function computeStats(trades: Trade[]): Stats {
   const sorted = [...trades].sort((a, b) => a.entry_time.localeCompare(b.entry_time))
   let peak = 0, running = 0, maxDD = 0
   for (const t of sorted) {
-    running += t.pnl
+    running += (t.pnl ?? 0)
     if (running > peak) peak = running
     const dd = peak - running
     if (dd > maxDD) maxDD = dd
@@ -180,7 +180,7 @@ function buildEquityCurve(trades: Trade[]): CurvePoint[] {
   let running = 0
   const points: CurvePoint[] = [{ label: 'Start', equity: 0 }]
   for (const t of sorted) {
-    running = Math.round((running + t.pnl) * 100) / 100
+    running = Math.round((running + (t.pnl ?? 0)) * 100) / 100
     points.push({ label: t.entry_time.slice(5, 10), equity: running })
   }
   return points
@@ -191,7 +191,7 @@ function buildCalendarDays(year: number, month: number, trades: Trade[]): (CalDa
   for (const t of trades) {
     const day = t.entry_time.slice(0, 10)
     const cur = map.get(day) ?? { pnl: 0, count: 0 }
-    map.set(day, { pnl: cur.pnl + t.pnl, count: cur.count + 1 })
+    map.set(day, { pnl: cur.pnl + (t.pnl ?? 0), count: cur.count + 1 })
   }
   const firstDay = new Date(year, month, 1)
   const lastDate = new Date(year, month + 1, 0).getDate()
@@ -212,7 +212,7 @@ function buildRuleViolations(trades: Trade[]) {
   for (const t of trades) {
     for (const ruleId of (t.rules_broken_ids || [])) {
       const cur = map.get(ruleId) ?? { count: 0, cost: 0 }
-      map.set(ruleId, { count: cur.count + 1, cost: cur.cost + t.pnl })
+      map.set(ruleId, { count: cur.count + 1, cost: cur.cost + (t.pnl ?? 0) })
     }
   }
   return [...map.entries()]
@@ -318,25 +318,27 @@ export default function Dashboard() {
     () => filterTrades(allTrades, period, customStart, customEnd),
     [allTrades, period, customStart, customEnd],
   )
+  // Closed trades only — used for all P&L stats
+  const closedFiltered = useMemo(() => filtered.filter(t => t.pnl !== null), [filtered])
 
-  const stats = useMemo(() => computeStats(filtered), [filtered])
+  const stats = useMemo(() => computeStats(closedFiltered), [closedFiltered])
 
   const prevFilteredTrades = useMemo(
     () => filterPrevPeriod(allTrades, period),
     [allTrades, period],
   )
   const prevStats = useMemo(
-    () => prevFilteredTrades ? computeStats(prevFilteredTrades) : null,
+    () => prevFilteredTrades ? computeStats(prevFilteredTrades.filter(t => t.pnl !== null)) : null,
     [prevFilteredTrades],
   )
 
-  const equityCurve = useMemo(() => buildEquityCurve(filtered), [filtered])
+  const equityCurve = useMemo(() => buildEquityCurve(closedFiltered), [closedFiltered])
   const calDays = useMemo(
-    () => buildCalendarDays(now.getFullYear(), now.getMonth(), filtered),
+    () => buildCalendarDays(now.getFullYear(), now.getMonth(), closedFiltered),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filtered],
+    [closedFiltered],
   )
-  const ruleViolations = useMemo(() => buildRuleViolations(filtered), [filtered])
+  const ruleViolations = useMemo(() => buildRuleViolations(closedFiltered), [closedFiltered])
 
   const checklistItems = useMemo(() => getChecklistItems().filter(i => i.is_active), [])
   const [checklist, setChecklist] = useState<Record<string, boolean>>(() => getChecklistState(today))
@@ -349,14 +351,16 @@ export default function Dashboard() {
     })
   }
 
-  const sortedByPnl = useMemo(() => [...filtered].sort((a, b) => b.pnl - a.pnl), [filtered])
+  const sortedByPnl = useMemo(() => [...closedFiltered].sort((a, b) => (b.pnl ?? 0) - (a.pnl ?? 0)), [closedFiltered])
   const bestTrades = sortedByPnl.slice(0, 3)
   const worstTrades = [...sortedByPnl].reverse().slice(0, 3)
 
   const recentTrades = useMemo(
-    () => [...allTrades].sort((a, b) => b.entry_time.localeCompare(a.entry_time)).slice(0, 5),
+    () => [...allTrades].filter(t => t.pnl !== null).sort((a, b) => b.entry_time.localeCompare(a.entry_time)).slice(0, 5),
     [allTrades],
   )
+
+  const openTrades = useMemo(() => allTrades.filter(t => t.exit_price === null), [allTrades])
 
   const topViolation = ruleViolations[0]
 
@@ -575,6 +579,47 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* ── Open Positions ── */}
+      {openTrades.length > 0 && (
+        <div className="bg-bg-card border border-accent/20 rounded-xl p-5 shadow-card">
+          <h2 className="text-sm font-semibold text-text-secondary mb-3">
+            Open Positions <span className="text-accent font-mono">({openTrades.length})</span>
+          </h2>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[11px] text-text-muted uppercase tracking-wider border-b border-border">
+                <th className="text-left pb-2.5 font-medium">Ticker</th>
+                <th className="text-left pb-2.5 font-medium">Dir</th>
+                <th className="text-left pb-2.5 font-medium">Entry $</th>
+                <th className="text-left pb-2.5 font-medium">Qty</th>
+                <th className="text-left pb-2.5 font-medium">Open Since</th>
+              </tr>
+            </thead>
+            <tbody>
+              {openTrades.map(t => (
+                <tr
+                  key={t.id}
+                  onClick={() => navigate('/trade-log')}
+                  className="hover:bg-bg-hover cursor-pointer border-b border-border/40 last:border-0 transition-colors"
+                >
+                  <td className="py-2.5 font-mono font-semibold text-text-primary">{t.ticker}</td>
+                  <td className="py-2.5">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-md font-medium ${
+                      t.direction === 'long' ? 'bg-profit/12 text-profit' : 'bg-loss/12 text-loss'
+                    }`}>
+                      {t.direction === 'long' ? 'L' : 'S'}
+                    </span>
+                  </td>
+                  <td className="py-2.5 font-mono text-text-secondary">${t.entry_price.toFixed(2)}</td>
+                  <td className="py-2.5 font-mono text-text-secondary">{t.quantity.toLocaleString()}</td>
+                  <td className="py-2.5 text-text-muted text-xs">{fmtDate(t.entry_time)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ── Equity Curve ── */}
       <div className="bg-bg-card border border-border rounded-xl p-5 shadow-card">
         <div className="flex items-center justify-between mb-4">
@@ -754,8 +799,8 @@ export default function Dashboard() {
               <p className="text-[11px] font-semibold text-profit uppercase tracking-wider mb-2 flex items-center gap-1">
                 <TrendingUp size={11} /> Top Wins
               </p>
-              {bestTrades.filter(t => t.pnl > 0).length > 0 ? (
-                bestTrades.filter(t => t.pnl > 0).map(t => (
+              {bestTrades.filter(t => (t.pnl ?? 0) > 0).length > 0 ? (
+                bestTrades.filter(t => (t.pnl ?? 0) > 0).map(t => (
                   <div
                     key={t.id}
                     onClick={() => navigate('/trade-log')}
@@ -765,7 +810,7 @@ export default function Dashboard() {
                       <span className="text-sm font-semibold text-text-primary">{t.ticker}</span>
                       <span className="text-xs text-text-muted ml-2">{fmtDate(t.entry_time)}</span>
                     </div>
-                    <span className="text-sm font-mono text-profit ml-2 shrink-0">{fmtPnl(t.pnl)}</span>
+                    <span className="text-sm font-mono text-profit ml-2 shrink-0">{fmtPnl(t.pnl ?? 0)}</span>
                   </div>
                 ))
               ) : (
@@ -777,8 +822,8 @@ export default function Dashboard() {
               <p className="text-[11px] font-semibold text-loss uppercase tracking-wider mb-2 flex items-center gap-1">
                 <TrendingDown size={11} /> Worst Losses
               </p>
-              {worstTrades.filter(t => t.pnl < 0).length > 0 ? (
-                worstTrades.filter(t => t.pnl < 0).map(t => (
+              {worstTrades.filter(t => (t.pnl ?? 0) < 0).length > 0 ? (
+                worstTrades.filter(t => (t.pnl ?? 0) < 0).map(t => (
                   <div
                     key={t.id}
                     onClick={() => navigate('/trade-log')}
@@ -788,7 +833,7 @@ export default function Dashboard() {
                       <span className="text-sm font-semibold text-text-primary">{t.ticker}</span>
                       <span className="text-xs text-text-muted ml-2">{fmtDate(t.entry_time)}</span>
                     </div>
-                    <span className="text-sm font-mono text-loss ml-2 shrink-0">{fmtPnl(t.pnl)}</span>
+                    <span className="text-sm font-mono text-loss ml-2 shrink-0">{fmtPnl(t.pnl ?? 0)}</span>
                   </div>
                 ))
               ) : (
@@ -836,8 +881,8 @@ export default function Dashboard() {
                         {t.direction === 'long' ? 'L' : 'S'}
                       </span>
                     </td>
-                    <td className={`py-2.5 text-right font-mono font-semibold text-sm ${t.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-                      {fmtPnl(t.pnl)}
+                    <td className={`py-2.5 text-right font-mono font-semibold text-sm ${(t.pnl ?? 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {fmtPnl(t.pnl ?? 0)}
                     </td>
                     <td className="py-2.5 text-right text-text-muted font-mono text-xs">
                       {t.actual_r !== null ? `${t.actual_r >= 0 ? '+' : ''}${t.actual_r.toFixed(2)}R` : '—'}

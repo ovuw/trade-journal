@@ -41,11 +41,11 @@ interface Scenario {
 
 function capLossAt(trades: Trade[], rMultiple: number): Trade[] {
   return trades.map(t => {
-    if (t.pnl >= 0) return t
+    if ((t.pnl ?? 0) >= 0) return t
     const stopDist = t.stop_price ? Math.abs(t.entry_price - t.stop_price) : null
     if (!stopDist || stopDist === 0) return t
     const maxLoss = -(stopDist * t.quantity * rMultiple)
-    if (t.pnl < maxLoss) {
+    if ((t.pnl ?? 0) < maxLoss) {
       return { ...t, pnl: maxLoss }
     }
     return t
@@ -54,12 +54,12 @@ function capLossAt(trades: Trade[], rMultiple: number): Trade[] {
 
 function cutAllLossesAtStop(trades: Trade[]): Trade[] {
   return trades.map(t => {
-    if (t.pnl >= 0) return t
+    if ((t.pnl ?? 0) >= 0) return t
     const stopDist = t.stop_price ? Math.abs(t.entry_price - t.stop_price) : null
     if (!stopDist) return t
     const stopLoss = -(stopDist * t.quantity)
     // Only improve trades worse than stop (simulate that stop was respected)
-    if (t.pnl < stopLoss) return { ...t, pnl: stopLoss }
+    if ((t.pnl ?? 0) < stopLoss) return { ...t, pnl: stopLoss }
     return t
   })
 }
@@ -69,7 +69,7 @@ function removeRuleBreakingTrades(trades: Trade[]): Trade[] {
 }
 
 function sizeUpWinners(trades: Trade[]): Trade[] {
-  return trades.map(t => t.pnl > 0 ? { ...t, pnl: t.pnl * 2 } : t)
+  return trades.map(t => (t.pnl ?? 0) > 0 ? { ...t, pnl: (t.pnl ?? 0) * 2 } : t)
 }
 
 function tradeOnlyBestSetup(trades: Trade[]): Trade[] {
@@ -86,11 +86,11 @@ function tradeOnlyBestSetup(trades: Trade[]): Trade[] {
   let bestEv = -Infinity
   for (const [id, ts] of bySetup) {
     if (ts.length < 3) continue
-    const wins = ts.filter(t => t.pnl > 0)
-    const losses = ts.filter(t => t.pnl < 0)
+    const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+    const losses = ts.filter(t => (t.pnl ?? 0) < 0)
     const winRate = wins.length / ts.length
-    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0
-    const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0)) / losses.length : 0
+    const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (t.pnl ?? 0), 0) / wins.length : 0
+    const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (t.pnl ?? 0), 0)) / losses.length : 0
     const ev = winRate * avgWin - (1 - winRate) * avgLoss
     if (ev > bestEv) { bestEv = ev; bestSetup = id }
   }
@@ -144,12 +144,12 @@ interface Stats {
 
 function computeStats(trades: Trade[]): Stats {
   if (trades.length === 0) return { totalPnl: 0, winRate: 0, tradeCount: 0, profitFactor: 0, avgWin: 0, avgLoss: 0 }
-  const wins = trades.filter(t => t.pnl > 0)
-  const losses = trades.filter(t => t.pnl < 0)
-  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0)
+  const wins = trades.filter(t => (t.pnl ?? 0) > 0)
+  const losses = trades.filter(t => (t.pnl ?? 0) < 0)
+  const totalPnl = trades.reduce((s, t) => s + (t.pnl ?? 0), 0)
   const winRate = (wins.length / trades.length) * 100
-  const grossWin = wins.reduce((s, t) => s + t.pnl, 0)
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0))
+  const grossWin = wins.reduce((s, t) => s + (t.pnl ?? 0), 0)
+  const grossLoss = Math.abs(losses.reduce((s, t) => s + (t.pnl ?? 0), 0))
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 999 : 0
   const avgWin = wins.length > 0 ? grossWin / wins.length : 0
   const avgLoss = losses.length > 0 ? grossLoss / losses.length : 0

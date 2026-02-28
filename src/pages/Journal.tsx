@@ -196,7 +196,7 @@ export default function Journal() {
     () => allTrades.filter(t => t.entry_time.slice(0, 10) === selectedDate),
     [allTrades, selectedDate],
   )
-  const dayPnl = dayTrades.reduce((s, t) => s + t.pnl, 0)
+  const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
 
   // ── Entry has any content? ─────────────────────────────────────────────────
   const hasEntry = content.trim().length > 0 || mood > 0
@@ -510,15 +510,15 @@ export default function Journal() {
                       {t.direction === 'long' ? 'Long' : 'Short'}
                     </span>
                     <span className="text-text-muted text-xs">
-                      {t.quantity} shares @ ${t.entry_price.toFixed(2)} → ${t.exit_price.toFixed(2)}
+                      {t.quantity} shares @ ${t.entry_price.toFixed(2)}{t.exit_price != null ? ` → $${t.exit_price.toFixed(2)}` : ''}
                     </span>
                     {t.actual_r !== null && (
                       <span className="text-text-muted text-xs font-mono">
                         {t.actual_r >= 0 ? '+' : ''}{t.actual_r.toFixed(2)}R
                       </span>
                     )}
-                    <span className={`ml-auto font-mono font-semibold ${t.pnl >= 0 ? 'text-profit' : 'text-loss'}`}>
-                      {fmtPnl(t.pnl)}
+                    <span className={`ml-auto font-mono font-semibold ${(t.pnl ?? 0) >= 0 ? 'text-profit' : 'text-loss'}`}>
+                      {t.pnl !== null ? fmtPnl(t.pnl) : <span className="text-text-muted">—</span>}
                     </span>
                   </div>
                 ))}

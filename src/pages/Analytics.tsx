@@ -101,12 +101,13 @@ function computeTickerBreakdown(trades: Trade[]): TickerBreakdown[] {
     map.set(t.ticker, arr)
   }
   return [...map.entries()].map(([ticker, ts]) => {
-    const wins = ts.filter(t => t.pnl > 0)
+    const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+    const totalPnl = ts.reduce((s, t) => s + (t.pnl ?? 0), 0)
     return {
       ticker, count: ts.length, wins: wins.length,
       winRate: ts.length > 0 ? (wins.length / ts.length) * 100 : 0,
-      totalPnl: ts.reduce((s, t) => s + t.pnl, 0),
-      avgPnl: ts.length > 0 ? ts.reduce((s, t) => s + t.pnl, 0) / ts.length : 0,
+      totalPnl,
+      avgPnl: ts.length > 0 ? totalPnl / ts.length : 0,
     }
   }).sort((a, b) => b.totalPnl - a.totalPnl)
 }
@@ -114,12 +115,13 @@ function computeTickerBreakdown(trades: Trade[]): TickerBreakdown[] {
 function computeDirectionBreakdown(trades: Trade[]): DirectionBreakdown[] {
   return (['long', 'short'] as const).map(dir => {
     const ts = trades.filter(t => t.direction === dir)
-    const wins = ts.filter(t => t.pnl > 0)
+    const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+    const totalPnl = ts.reduce((s, t) => s + (t.pnl ?? 0), 0)
     return {
       direction: dir, count: ts.length, wins: wins.length,
       winRate: ts.length > 0 ? (wins.length / ts.length) * 100 : 0,
-      totalPnl: ts.reduce((s, t) => s + t.pnl, 0),
-      avgPnl: ts.length > 0 ? ts.reduce((s, t) => s + t.pnl, 0) / ts.length : 0,
+      totalPnl,
+      avgPnl: ts.length > 0 ? totalPnl / ts.length : 0,
     }
   })
 }
@@ -133,11 +135,11 @@ function computeAssetBreakdown(trades: Trade[]): AssetBreakdown[] {
   }
   return [...map.entries()]
     .map(([ac, ts]) => {
-      const wins = ts.filter(t => t.pnl > 0)
+      const wins = ts.filter(t => (t.pnl ?? 0) > 0)
       return {
         assetClass: ac as AssetClass, count: ts.length, wins: wins.length,
         winRate: ts.length > 0 ? (wins.length / ts.length) * 100 : 0,
-        totalPnl: ts.reduce((s, t) => s + t.pnl, 0),
+        totalPnl: ts.reduce((s, t) => s + (t.pnl ?? 0), 0),
       }
     })
     .filter(a => a.count > 0)
@@ -155,7 +157,7 @@ function computeDow(trades: Trade[]): DowPoint[] {
     if (!DOW_JS.includes(idx)) continue
     const day = DOW_ORDER[idx - 1]
     const cur = map.get(day)!
-    map.set(day, { pnl: cur.pnl + t.pnl, count: cur.count + 1, wins: cur.wins + (t.pnl > 0 ? 1 : 0) })
+    map.set(day, { pnl: cur.pnl + (t.pnl ?? 0), count: cur.count + 1, wins: cur.wins + ((t.pnl ?? 0) > 0 ? 1 : 0) })
   }
   return DOW_ORDER.map(day => {
     const d = map.get(day)!
@@ -168,7 +170,7 @@ function computeTimeOfDay(trades: Trade[]): HourPoint[] {
   for (const t of trades) {
     const h = getHour(t.entry_time)
     const cur = map.get(h) ?? { pnl: 0, count: 0 }
-    map.set(h, { pnl: cur.pnl + t.pnl, count: cur.count + 1 })
+    map.set(h, { pnl: cur.pnl + (t.pnl ?? 0), count: cur.count + 1 })
   }
   const results: HourPoint[] = []
   for (let h = 7; h <= 17; h++) {
@@ -252,7 +254,7 @@ export default function Analytics() {
 
   const allTrades = useMemo(() => getTrades(), [])
   const filtered = useMemo(
-    () => filterTrades(allTrades, period, customStart, customEnd),
+    () => filterTrades(allTrades, period, customStart, customEnd).filter(t => t.pnl !== null),
     [allTrades, period, customStart, customEnd],
   )
 
@@ -263,7 +265,7 @@ export default function Analytics() {
   const dowData = useMemo(() => computeDow(filtered), [filtered])
   const hourData = useMemo(() => computeTimeOfDay(filtered), [filtered])
   const rDist = useMemo(() => computeRDistribution(filtered), [filtered])
-  const streaks = useMemo(() => calcStreak(allTrades), [allTrades]) // streaks always use all trades
+  const streaks = useMemo(() => calcStreak(allTrades.filter(t => t.pnl !== null)), [allTrades]) // streaks always use all closed trades
 
   const hasData = filtered.length > 0
 

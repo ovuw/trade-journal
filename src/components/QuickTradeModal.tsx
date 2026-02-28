@@ -3,7 +3,7 @@ import { X, Zap, CheckCircle } from 'lucide-react'
 import { saveTrade, getSetupTags } from '../lib/db'
 import { getSession } from '../lib/supabase'
 import { pushTrade } from '../lib/sync'
-import { detectSession, nowLocal } from '../lib/tradeUtils'
+import { detectSession, nowLocal, calcPnl, calcResultPct } from '../lib/tradeUtils'
 import { type Direction, type AssetClass } from '../types'
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
@@ -114,7 +114,6 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
     const errs: Errors = {}
     if (!form.ticker.trim()) errs.ticker = 'Required'
     if (!form.entry_price) errs.entry_price = 'Required'
-    if (!form.exit_price) errs.exit_price = 'Required'
     if (!form.quantity) errs.quantity = 'Required'
     setErrors(errs)
     return Object.keys(errs).length === 0
@@ -124,17 +123,18 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
     if (!validate()) return
 
     const entry = parseFloat(form.entry_price)
-    const exit = parseFloat(form.exit_price)
     const qty = parseFloat(form.quantity)
-    const pnl = form.direction === 'long' ? (exit - entry) * qty : (entry - exit) * qty
-    const result_pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
+    const hasExit = !!form.exit_price
+    const exitPrice = hasExit ? parseFloat(form.exit_price) : null
+    const pnl = hasExit && exitPrice !== null ? calcPnl(form.direction, entry, exitPrice, qty) : null
+    const result_pct = pnl !== null ? calcResultPct(pnl, entry, qty) : null
 
     const trade = saveTrade({
       ticker: form.ticker.toUpperCase(),
       direction: form.direction,
       asset_class: form.asset_class,
       entry_price: entry,
-      exit_price: exit,
+      exit_price: exitPrice,
       quantity: qty,
       fees: 0,
       stop_price: null,
@@ -142,7 +142,7 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
       planned_rr: null,
       actual_r: null,
       entry_time: form.entry_time,
-      exit_time: form.entry_time,
+      exit_time: hasExit ? form.entry_time : null,
       setup_tag_id: form.setup_tag_id,
       mistake_tag_ids: [],
       rules_broken_ids: [],
@@ -308,8 +308,7 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
               </div>
               <div>
                 <label htmlFor="qe-exit-price" className="text-xs text-text-secondary block mb-1.5">
-                  Exit Price <span className="text-loss" aria-hidden="true">*</span>
-                  <span className="sr-only">(required)</span>
+                  Exit Price <span className="text-text-muted text-[10px]">(optional)</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm" aria-hidden="true">$</span>
@@ -321,13 +320,9 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
                     value={form.exit_price}
                     onChange={e => update('exit_price', e.target.value)}
                     placeholder="0.00"
-                    aria-required="true"
-                    aria-invalid={!!errors.exit_price}
-                    aria-describedby={errors.exit_price ? 'qe-exit-price-err' : undefined}
-                    className={`input pl-6 font-mono text-sm ${errors.exit_price ? 'border-loss' : ''}`}
+                    className="input pl-6 font-mono text-sm"
                   />
                 </div>
-                {errors.exit_price && <p id="qe-exit-price-err" className="text-xs text-loss mt-0.5" role="alert">{errors.exit_price}</p>}
               </div>
             </div>
 
@@ -402,7 +397,7 @@ export default function QuickTradeModal({ onClose }: { onClose: () => void }) {
               onClick={handleSave}
               className="btn-primary w-full mt-1"
             >
-              Save Trade
+              {form.exit_price ? 'Save Trade' : 'Save Open Position'}
             </button>
           </div>
         )}

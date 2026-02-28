@@ -40,14 +40,14 @@ export function calcStreak(trades: Trade[]): StreakResult {
 
   let longestWin = 0, longestLoss = 0, tempWin = 0, tempLoss = 0
   for (const t of sorted) {
-    if (t.pnl > 0) { tempWin++; tempLoss = 0; if (tempWin > longestWin) longestWin = tempWin }
+    if ((t.pnl ?? 0) > 0) { tempWin++; tempLoss = 0; if (tempWin > longestWin) longestWin = tempWin }
     else { tempLoss++; tempWin = 0; if (tempLoss > longestLoss) longestLoss = tempLoss }
   }
 
-  const lastType: 'win' | 'loss' = sorted[sorted.length - 1].pnl > 0 ? 'win' : 'loss'
+  const lastType: 'win' | 'loss' = (sorted[sorted.length - 1].pnl ?? 0) > 0 ? 'win' : 'loss'
   let streak = 1
   for (let i = sorted.length - 2; i >= 0; i--) {
-    const isWin = sorted[i].pnl > 0
+    const isWin = (sorted[i].pnl ?? 0) > 0
     if ((lastType === 'win' && isWin) || (lastType === 'loss' && !isWin)) streak++
     else break
   }
@@ -58,14 +58,14 @@ export function calcStreak(trades: Trade[]): StreakResult {
 // ── calcSetupBreakdown ─────────────────────────────────────────────────────────
 
 function setupStats(ts: Trade[]): Omit<SetupStat, 'tagId' | 'name'> {
-  const wins = ts.filter(t => t.pnl > 0)
-  const losses = ts.filter(t => t.pnl < 0)
+  const wins = ts.filter(t => (t.pnl ?? 0) > 0)
+  const losses = ts.filter(t => (t.pnl ?? 0) < 0)
   const winRate = ts.length > 0 ? (wins.length / ts.length) * 100 : 0
-  const totalPnl = ts.reduce((s, t) => s + t.pnl, 0)
+  const totalPnl = ts.reduce((s, t) => s + (t.pnl ?? 0), 0)
   const avgPnl = ts.length > 0 ? totalPnl / ts.length : 0
-  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0
-  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + t.pnl, 0)) / losses.length : 0
-  const ev = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss
+  const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (t.pnl ?? 0), 0) / wins.length : 0
+  const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (t.pnl ?? 0), 0)) / losses.length : 0
+  const ev = (wins.length / ts.length) * avgWin - (losses.length / ts.length) * avgLoss
   const withR = ts.filter(t => t.actual_r !== null)
   const avgR = withR.length > 0 ? withR.reduce((s, t) => s + t.actual_r!, 0) / withR.length : null
   return { count: ts.length, wins: wins.length, winRate, totalPnl, avgPnl, avgWin, avgLoss, avgR, ev }
@@ -92,7 +92,7 @@ export function calcRuleBreakdown(trades: Trade[], rules: Rule[]): RuleStat[] {
   for (const t of trades) {
     for (const ruleId of (t.rules_broken_ids || [])) {
       const cur = map.get(ruleId) ?? { count: 0, cost: 0 }
-      map.set(ruleId, { count: cur.count + 1, cost: cur.cost + t.pnl })
+      map.set(ruleId, { count: cur.count + 1, cost: cur.cost + (t.pnl ?? 0) })
     }
   }
   return [...map.entries()]
