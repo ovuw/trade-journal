@@ -466,6 +466,7 @@ export default function Journal() {
               onChange={e => handleContentChange(e.target.value)}
               placeholder={`What happened today? Key observations, lessons, trade rationale...\n\nMarkdown supported:\n# Heading\n**bold** _italic_\n- bullet point`}
               rows={18}
+              aria-label="Journal entry"
               className="w-full bg-transparent px-4 py-3 text-sm text-text-primary placeholder-text-muted resize-none focus:outline-none leading-relaxed font-mono"
             />
           </div>

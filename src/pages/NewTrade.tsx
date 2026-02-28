@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ImagePlus, X, CheckCircle } from 'lucide-react'
+import { useToast } from '../components/Toast'
+import { ImagePlus, X, CheckCircle, Clock } from 'lucide-react'
 import PositionCalculator from '../components/PositionCalculator'
 import StarRating from '../components/StarRating'
 import MultiTagSelect from '../components/MultiTagSelect'
@@ -13,29 +14,28 @@ import {
   type TradeFormData,
   type Direction,
   type AssetClass,
-  type TradingSession,
 } from '../types'
-
-function detectSession(entryTime: string): TradingSession | undefined {
-  // entryTime is local datetime-local string: YYYY-MM-DDTHH:MM
-  const parts = entryTime.split('T')
-  if (parts.length < 2) return undefined
-  const [hStr, mStr] = parts[1].split(':')
-  const h = parseInt(hStr, 10)
-  const m = parseInt(mStr, 10)
-  const mins = h * 60 + m
-  if (mins >= 4 * 60 && mins < 9 * 60 + 30) return 'pre-market'
-  if (mins >= 9 * 60 + 30 && mins < 16 * 60) return 'rth'
-  if (mins >= 16 * 60 && mins <= 20 * 60) return 'after-hours'
-  return undefined
-}
+import { detectSession, nowLocal } from '../lib/tradeUtils'
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
 
-function nowLocal(): string {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+const DRAFT_KEY = 'tj_draft_trade'
+
+function loadDraft(): TradeFormData | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const draft = JSON.parse(raw) as TradeFormData
+    // Only restore if there's meaningful content
+    if (!draft.ticker && !draft.entry_price) return null
+    return draft
+  } catch {
+    return null
+  }
+}
+
+function clearDraft() {
+  localStorage.removeItem(DRAFT_KEY)
 }
 
 function makeEmptyForm(): TradeFormData {
@@ -69,11 +69,12 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
-function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
+function Label({ children, required, htmlFor }: { children: React.ReactNode; required?: boolean; htmlFor?: string }) {
   return (
-    <label className="text-xs text-text-secondary block mb-1.5">
+    <label htmlFor={htmlFor} className="text-xs text-text-secondary block mb-1.5">
       {children}
-      {required && <span className="text-loss ml-0.5">*</span>}
+      {required && <span className="text-loss ml-0.5" aria-hidden="true">*</span>}
+      {required && <span className="sr-only">(required)</span>}
     </label>
   )
 }
@@ -84,19 +85,22 @@ function PriceInput({
   onChange,
   placeholder,
   required,
+  id,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
   required?: boolean
+  id?: string
 }) {
   return (
     <div>
-      <Label required={required}>{label}</Label>
+      <Label required={required} htmlFor={id}>{label}</Label>
       <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm">$</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm" aria-hidden="true">$</span>
         <input
+          id={id}
           type="number"
           step="0.01"
           min="0"
@@ -113,6 +117,7 @@ function PriceInput({
 
 export default function NewTrade() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [searchParams] = useSearchParams()
   const editId = searchParams.get('id')
   const isEdit = !!editId
@@ -144,9 +149,10 @@ export default function NewTrade() {
         }
       }
     }
-    return makeEmptyForm()
+    return loadDraft() ?? makeEmptyForm()
   })
 
+  const [draftRestored, setDraftRestored] = useState(() => !editId && loadDraft() !== null)
   const [screenshots, setScreenshots] = useState<string[]>(() =>
     editId ? getScreenshots(editId) : []
   )
@@ -263,6 +269,8 @@ export default function NewTrade() {
             if (screenshots[0]) void uploadTradeScreenshot(editId, screenshots[0], s.user.id).then(path => { if (path) updateTrade(editId, { screenshot_id: path }) })
           }
         })
+        clearDraft()
+        showToast('Trade updated', 'success')
         setSaved(true)
         setTimeout(() => navigate('/trade-log'), 800)
       } else {
@@ -300,6 +308,8 @@ export default function NewTrade() {
             if (screenshots[0]) void uploadTradeScreenshot(trade.id, screenshots[0], s.user.id).then(path => { if (path) updateTrade(trade.id, { screenshot_id: path }) })
           }
         })
+        clearDraft()
+        showToast('Trade saved', 'success')
         setSaved(true)
         setTimeout(() => navigate('/trade-log'), 800)
       }
@@ -315,6 +325,14 @@ export default function NewTrade() {
   const entryNum = parseFloat(form.entry_price) || null
   const stopNum = parseFloat(form.stop_price) || null
   const targetNum = parseFloat(form.target_price) || null
+
+  // Autosave draft to localStorage on every form change (new trade only)
+  useEffect(() => {
+    if (isEdit) return
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(form))
+    } catch { /* storage full — ignore */ }
+  }, [form, isEdit])
 
   // Cmd+S keyboard shortcut support
   useEffect(() => {
@@ -354,6 +372,21 @@ export default function NewTrade() {
             </p>
           </div>
 
+          {draftRestored && (
+            <div className="flex items-center justify-between bg-warning/10 border border-warning/30 rounded-lg px-4 py-2.5">
+              <span className="flex items-center gap-1.5 text-sm text-warning">
+                <Clock size={13} /> Draft restored
+              </span>
+              <button
+                type="button"
+                onClick={() => { setForm(makeEmptyForm()); clearDraft(); setDraftRestored(false) }}
+                className="text-xs text-text-secondary hover:text-text-primary underline"
+              >
+                Discard
+              </button>
+            </div>
+          )}
+
           {submitError && (
             <div className="bg-loss/10 border border-loss/30 rounded-lg p-3 text-sm text-loss">
               {submitError}
@@ -367,8 +400,9 @@ export default function NewTrade() {
               {/* Ticker + Direction */}
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <Label required>Ticker</Label>
+                  <Label required htmlFor="nt-ticker">Ticker</Label>
                   <input
+                    id="nt-ticker"
                     type="text"
                     value={form.ticker}
                     onChange={e => update('ticker', e.target.value.toUpperCase())}
@@ -425,8 +459,9 @@ export default function NewTrade() {
               {/* Times */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label required>Entry Time</Label>
+                  <Label required htmlFor="nt-entry-time">Entry Time</Label>
                   <input
+                    id="nt-entry-time"
                     type="datetime-local"
                     value={form.entry_time}
                     onChange={e => update('entry_time', e.target.value)}
@@ -434,8 +469,9 @@ export default function NewTrade() {
                   />
                 </div>
                 <div>
-                  <Label>Exit Time</Label>
+                  <Label htmlFor="nt-exit-time">Exit Time</Label>
                   <input
+                    id="nt-exit-time"
                     type="datetime-local"
                     value={form.exit_time}
                     onChange={e => update('exit_time', e.target.value)}
@@ -453,6 +489,7 @@ export default function NewTrade() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <PriceInput
+                    id="nt-entry-price"
                     label="Entry Price"
                     value={form.entry_price}
                     onChange={v => update('entry_price', v)}
@@ -462,6 +499,7 @@ export default function NewTrade() {
                 </div>
                 <div>
                   <PriceInput
+                    id="nt-exit-price"
                     label="Exit Price"
                     value={form.exit_price}
                     onChange={v => update('exit_price', v)}
@@ -473,12 +511,14 @@ export default function NewTrade() {
 
               <div className="grid grid-cols-2 gap-3">
                 <PriceInput
+                  id="nt-stop-price"
                   label="Stop Price"
                   value={form.stop_price}
                   onChange={v => update('stop_price', v)}
                   placeholder="Optional"
                 />
                 <PriceInput
+                  id="nt-target-price"
                   label="Target Price"
                   value={form.target_price}
                   onChange={v => update('target_price', v)}
@@ -488,8 +528,9 @@ export default function NewTrade() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label required>Quantity / Shares</Label>
+                  <Label required htmlFor="nt-quantity">Quantity / Shares</Label>
                   <input
+                    id="nt-quantity"
                     type="number"
                     min="0"
                     step="1"
@@ -501,10 +542,11 @@ export default function NewTrade() {
                   {errors.quantity && <p className="text-xs text-loss mt-1">{errors.quantity}</p>}
                 </div>
                 <div>
-                  <Label>Fees / Commission</Label>
+                  <Label htmlFor="nt-fees">Fees / Commission</Label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm" aria-hidden="true">$</span>
                     <input
+                      id="nt-fees"
                       type="number"
                       min="0"
                       step="0.01"
@@ -556,8 +598,9 @@ export default function NewTrade() {
             <div className="space-y-4">
               {/* Setup tag */}
               <div>
-                <Label>Setup Tag</Label>
+                <Label htmlFor="nt-setup-tag">Setup Tag</Label>
                 <select
+                  id="nt-setup-tag"
                   value={form.setup_tag_id}
                   onChange={e => update('setup_tag_id', e.target.value)}
                   className="input text-sm"
@@ -614,8 +657,9 @@ export default function NewTrade() {
             <SectionHeader title="Notes & Screenshot" />
             <div className="space-y-4">
               <div>
-                <Label>Trade Notes</Label>
+                <Label htmlFor="nt-notes">Trade Notes</Label>
                 <textarea
+                  id="nt-notes"
                   value={form.notes}
                   onChange={e => update('notes', e.target.value)}
                   placeholder="Why did you take this trade? What went well or wrong?"

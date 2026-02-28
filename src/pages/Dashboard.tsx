@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
 import { useNavigate } from 'react-router-dom'
 import {
   AreaChart,
@@ -10,7 +11,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { AlertTriangle, TrendingUp, TrendingDown, CheckSquare, Square, Plus } from 'lucide-react'
+import { AlertTriangle, TrendingUp, TrendingDown, CheckSquare, Square, Plus, CheckCircle, X } from 'lucide-react'
 import { getTrades, getChecklistState, saveChecklistState, getRules, getChecklistItems } from '../lib/db'
 import { Trade } from '../types'
 
@@ -102,6 +103,40 @@ function filterTrades(
     })
   }
   return trades // 'all'
+}
+
+function filterPrevPeriod(allTrades: Trade[], period: Period): Trade[] | null {
+  if (period === 'all' || period === 'custom') return null
+  const d = new Date()
+
+  if (period === 'today') {
+    const yesterday = new Date(d)
+    yesterday.setDate(d.getDate() - 1)
+    const y = isoDate(yesterday)
+    return allTrades.filter(t => t.entry_time.slice(0, 10) === y)
+  }
+
+  if (period === 'week') {
+    const day = d.getDay()
+    const thisMondayDate = d.getDate() - day + (day === 0 ? -6 : 1)
+    const prevMon = isoDate(new Date(d.getFullYear(), d.getMonth(), thisMondayDate - 7))
+    const prevSun = isoDate(new Date(d.getFullYear(), d.getMonth(), thisMondayDate - 1))
+    return allTrades.filter(t => {
+      const td = t.entry_time.slice(0, 10)
+      return td >= prevMon && td <= prevSun
+    })
+  }
+
+  if (period === 'month') {
+    const prevMonStart = isoDate(new Date(d.getFullYear(), d.getMonth() - 1, 1))
+    const prevMonEnd = isoDate(new Date(d.getFullYear(), d.getMonth(), 0))
+    return allTrades.filter(t => {
+      const td = t.entry_time.slice(0, 10)
+      return td >= prevMonStart && td <= prevMonEnd
+    })
+  }
+
+  return null
 }
 
 function computeStats(trades: Trade[]): Stats {
@@ -201,16 +236,23 @@ function fmtDate(iso: string): string {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+interface StatDelta {
+  value: string
+  direction: 'up' | 'down' | 'none'
+}
+
 function StatCard({
   label,
   value,
   sub,
   color = 'neutral',
+  delta,
 }: {
   label: string
   value: string
   sub?: string
   color?: 'profit' | 'loss' | 'neutral'
+  delta?: StatDelta
 }) {
   const valueClass =
     color === 'profit' ? 'text-profit' :
@@ -220,11 +262,24 @@ function StatCard({
     color === 'profit' ? 'border-l-profit' :
     color === 'loss' ? 'border-l-loss' :
     'border-l-border'
+  const deltaClass =
+    delta?.direction === 'up' ? 'text-profit' :
+    delta?.direction === 'down' ? 'text-loss' :
+    'text-text-muted'
+  const deltaArrow =
+    delta?.direction === 'up' ? '↑' :
+    delta?.direction === 'down' ? '↓' :
+    '~'
   return (
     <div className={`stat-card border-l-2 ${borderClass}`}>
       <p className="text-[11px] font-medium text-text-muted uppercase tracking-wider mb-2">{label}</p>
       <p className={`text-2xl font-mono font-bold leading-none ${valueClass}`}>{value}</p>
       {sub && <p className="text-text-muted text-xs mt-1.5">{sub}</p>}
+      {delta && (
+        <p className={`text-[10px] font-mono mt-1 ${deltaClass}`}>
+          {deltaArrow} {delta.value}
+        </p>
+      )}
     </div>
   )
 }
@@ -250,9 +305,9 @@ function EquityTooltip({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [period, setPeriod] = useState<Period>('month')
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
+  const [period, setPeriod] = usePersistentState<Period>('tj_ui_dashboard_period', 'month')
+  const [customStart, setCustomStart] = usePersistentState('tj_ui_dashboard_custom_start', '')
+  const [customEnd, setCustomEnd] = usePersistentState('tj_ui_dashboard_custom_end', '')
   const navigate = useNavigate()
 
   const today = isoDate(new Date())
@@ -265,6 +320,16 @@ export default function Dashboard() {
   )
 
   const stats = useMemo(() => computeStats(filtered), [filtered])
+
+  const prevFilteredTrades = useMemo(
+    () => filterPrevPeriod(allTrades, period),
+    [allTrades, period],
+  )
+  const prevStats = useMemo(
+    () => prevFilteredTrades ? computeStats(prevFilteredTrades) : null,
+    [prevFilteredTrades],
+  )
+
   const equityCurve = useMemo(() => buildEquityCurve(filtered), [filtered])
   const calDays = useMemo(
     () => buildCalendarDays(now.getFullYear(), now.getMonth(), filtered),
@@ -307,6 +372,36 @@ export default function Dashboard() {
   const checklistPct = checklistItems.length > 0 ? (checklistDone / checklistItems.length) * 100 : 0
   const equityIsPositive = stats.netPnl >= 0
 
+  const [onboardingComplete, setOnboardingComplete] = useState(
+    () => !!localStorage.getItem('tj_onboarding_complete'),
+  )
+
+  function dismissOnboarding() {
+    localStorage.setItem('tj_onboarding_complete', '1')
+    setOnboardingComplete(true)
+  }
+
+  function mkDelta(
+    current: number,
+    prev: number | null | undefined,
+    format: (n: number) => string,
+    invertDir = false,
+  ): StatDelta | undefined {
+    if (prev == null) return undefined
+    const diff = current - prev
+    if (Math.abs(diff) < 0.005) return undefined
+    const rawDir: 'up' | 'down' = diff > 0 ? 'up' : 'down'
+    return {
+      value: format(diff),
+      direction: invertDir ? (rawDir === 'up' ? 'down' : 'up') : rawDir,
+    }
+  }
+
+  function fmtDiff$(n: number) { return `${n >= 0 ? '+' : ''}$${Math.abs(n).toFixed(2)}` }
+  function fmtDiffPct(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%` }
+  function fmtDiffRaw(n: number) { return `${n >= 0 ? '+' : ''}${n.toFixed(2)}` }
+  function fmtDiffInt(n: number) { return `${n >= 0 ? '+' : ''}${Math.round(n)}` }
+
   const profitFactorDisplay =
     stats.profitFactor >= 99 ? '∞' : stats.profitFactor.toFixed(2)
 
@@ -321,6 +416,45 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 space-y-5">
+      {/* ── Onboarding Banner ── */}
+      {!onboardingComplete && allTrades.length === 0 && (
+        <div className="bg-accent/8 border border-accent/30 rounded-xl px-5 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-text-primary">Welcome to Trade Journal</h2>
+              <p className="text-sm text-text-secondary mt-0.5 mb-3">Get started in 3 steps</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => navigate('/new-trade')}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-profit/15 text-profit hover:bg-profit/25 transition-colors border border-profit/30"
+                >
+                  Log your first trade →
+                </button>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-bg-secondary text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors border border-border"
+                >
+                  Set up your rules →
+                </button>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-bg-secondary text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors border border-border"
+                >
+                  Connect sync (optional) →
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={dismissOnboarding}
+              aria-label="Dismiss welcome banner"
+              className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -391,12 +525,14 @@ export default function Dashboard() {
           value={fmtPnl(stats.netPnl)}
           color={stats.netPnl > 0 ? 'profit' : stats.netPnl < 0 ? 'loss' : 'neutral'}
           sub={stats.totalTrades > 0 ? `${stats.totalTrades} trade${stats.totalTrades !== 1 ? 's' : ''}` : undefined}
+          delta={mkDelta(stats.netPnl, prevStats?.netPnl, fmtDiff$)}
         />
         <StatCard
           label="Win Rate"
           value={`${stats.winRate.toFixed(1)}%`}
           color={stats.winRate >= 50 ? 'profit' : stats.totalTrades > 0 ? 'loss' : 'neutral'}
           sub={stats.totalTrades > 0 ? `${stats.wins}W · ${stats.losses}L` : undefined}
+          delta={mkDelta(stats.winRate, prevStats?.winRate, fmtDiffPct)}
         />
         <StatCard
           label="Profit Factor"
@@ -406,25 +542,30 @@ export default function Dashboard() {
             stats.profitFactor < 1 && stats.totalTrades > 0 ? 'loss' :
             'neutral'
           }
+          delta={mkDelta(stats.profitFactor, prevStats?.profitFactor, fmtDiffRaw)}
         />
         <StatCard
           label="Avg Win"
           value={`$${stats.avgWin.toFixed(2)}`}
           color={stats.avgWin > 0 ? 'profit' : 'neutral'}
+          delta={mkDelta(stats.avgWin, prevStats?.avgWin, fmtDiff$)}
         />
         <StatCard
           label="Avg Loss"
           value={`$${stats.avgLoss.toFixed(2)}`}
           color={stats.avgLoss > 0 ? 'loss' : 'neutral'}
+          delta={mkDelta(stats.avgLoss, prevStats?.avgLoss, fmtDiff$, true)}
         />
         <StatCard
           label="Max Drawdown"
           value={`$${stats.maxDrawdown.toFixed(2)}`}
           color={stats.maxDrawdown > 0 ? 'loss' : 'neutral'}
+          delta={mkDelta(stats.maxDrawdown, prevStats?.maxDrawdown, fmtDiff$, true)}
         />
         <StatCard
           label="Trades"
           value={stats.totalTrades.toString()}
+          delta={mkDelta(stats.totalTrades, prevStats?.totalTrades, fmtDiffInt)}
         />
       </div>
 
@@ -583,8 +724,11 @@ export default function Dashboard() {
             </div>
           )}
           {checklistDone === checklistItems.length && checklistItems.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-border text-center">
-              <p className="text-profit text-sm font-medium">Ready to trade</p>
+            <div className="mt-3 pt-3 border-t border-border text-center transition-all duration-500">
+              <div className="flex items-center justify-center gap-2">
+                <CheckCircle size={15} className="text-profit animate-pulse" />
+                <p className="text-profit text-sm font-semibold">Ready to trade</p>
+              </div>
             </div>
           )}
         </div>

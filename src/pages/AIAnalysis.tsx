@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
 import { Sparkles, Play, Square, Key, ExternalLink, ChevronDown, History, Clock } from 'lucide-react'
 import { getTrades, getRules, getAnthropicKey, saveAnthropicKey, saveAnalysis, getAnalyses, type SavedAnalysis } from '../lib/db'
 import { buildPrompt, streamAnalysis } from '../lib/aiAnalysis'
@@ -53,7 +54,7 @@ function renderMarkdown(text: string) {
 export default function AIAnalysis() {
   const [apiKey, setApiKey] = useState(() => getAnthropicKey())
   const [keyInput, setKeyInput] = useState('')
-  const [period, setPeriod] = useState<Period>('all')
+  const [period, setPeriod] = usePersistentState<Period>('tj_ui_ai_period', 'all')
   const [status, setStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [output, setOutput] = useState('')
   const [error, setError] = useState('')
@@ -308,12 +309,24 @@ export default function AIAnalysis() {
               </div>
             )}
 
+            {status === 'running' && (
+              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border/50" aria-live="polite">
+                <div className="flex items-center gap-1">
+                  {[0, 150, 300].map(delay => (
+                    <span
+                      key={delay}
+                      className="w-1.5 h-1.5 rounded-full bg-accent animate-bounce"
+                      style={{ animationDelay: `${delay}ms` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-sm text-text-secondary">Analyzing your trades…</span>
+              </div>
+            )}
+
             {output && (
               <div className="space-y-0.5">
                 {renderMarkdown(output)}
-                {status === 'running' && (
-                  <span className="inline-block w-1.5 h-4 bg-accent animate-pulse ml-0.5" />
-                )}
               </div>
             )}
           </div>

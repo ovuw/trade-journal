@@ -85,7 +85,7 @@ export default function UpdaterDialog() {
             </button>
           </div>
           {state.body && (
-            <p className="mb-3 text-xs text-text-secondary leading-relaxed line-clamp-3">{state.body}</p>
+            <p className="mb-3 text-xs text-text-secondary leading-relaxed max-h-32 overflow-y-auto">{state.body}</p>
           )}
           <div className="flex gap-2">
             <button

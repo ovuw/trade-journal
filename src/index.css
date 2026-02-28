@@ -44,6 +44,15 @@
   }
 }
 
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.toast-slide-in {
+  animation: toast-slide-in 0.2s ease-out;
+}
+
 @layer components {
   .stat-card {
     @apply bg-bg-card border border-border rounded-xl p-4 shadow-card;

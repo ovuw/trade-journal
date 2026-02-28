@@ -29,6 +29,7 @@ create table if not exists trades (
   pnl           numeric,
   result_pct    numeric,
   screenshot_id text,
+  session       text,
   created_at    text not null,
   updated_at    text not null
 );

@@ -13,6 +13,46 @@ import type { Trade } from '../types'
 // Trades stored in Supabase carry an extra user_id field
 type RemoteTrade = Trade & { user_id: string }
 
+/**
+ * Pure merge of local + remote trade arrays.
+ * Strategy: last-write-wins on updated_at. Local-only trades are flagged for push.
+ * Exported for testing.
+ */
+export function mergeTrades(
+  local: Trade[],
+  remote: Trade[]
+): { merged: Trade[]; toPush: Trade[]; pulled: number } {
+  const localMap = new Map(local.map(t => [t.id, t]))
+  const remoteMap = new Map(remote.map(t => [t.id, t]))
+  const allIds = new Set([...localMap.keys(), ...remoteMap.keys()])
+
+  const merged: Trade[] = []
+  const toPush: Trade[] = []
+  let pulled = 0
+
+  for (const id of allIds) {
+    const l = localMap.get(id)
+    const r = remoteMap.get(id)
+    if (l && r) {
+      if (r.updated_at > l.updated_at) {
+        merged.push(r)
+        pulled++
+      } else {
+        merged.push(l)
+      }
+    } else if (l) {
+      merged.push(l)
+      toPush.push(l)
+    } else if (r) {
+      merged.push(r)
+      pulled++
+    }
+  }
+
+  merged.sort((a, b) => b.created_at.localeCompare(a.created_at))
+  return { merged, toPush, pulled }
+}
+
 /** Push one trade to Supabase (upsert). No-op if not configured. */
 export async function pushTrade(trade: Trade, userId: string): Promise<void> {
   const client = getSupabaseClient()
@@ -46,41 +86,9 @@ export async function syncTrades(userId: string): Promise<{ pulled: number; push
   if (error || !remoteData) return { pulled: 0, pushed: 0 }
 
   const remote = remoteData as RemoteTrade[]
-  const remoteMap = new Map(remote.map(t => [t.id, t]))
-
   const local = getTrades()
-  const localMap = new Map(local.map(t => [t.id, t]))
 
-  const allIds = new Set([...localMap.keys(), ...remoteMap.keys()])
-  const merged: Trade[] = []
-  const toPush: Trade[] = []
-  let pulled = 0
-
-  for (const id of allIds) {
-    const l = localMap.get(id)
-    const r = remoteMap.get(id)
-
-    if (l && r) {
-      if (r.updated_at > l.updated_at) {
-        // Remote is newer — store as-is (extra user_id field is harmless)
-        merged.push(r as unknown as Trade)
-        pulled++
-      } else {
-        merged.push(l)
-      }
-    } else if (l) {
-      // Local-only — needs to be pushed
-      merged.push(l)
-      toPush.push(l)
-    } else if (r) {
-      // Remote-only — pull it
-      merged.push(r as unknown as Trade)
-      pulled++
-    }
-  }
-
-  // Sort newest first (matches local convention: unshift on save)
-  merged.sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const { merged, toPush, pulled } = mergeTrades(local, remote as unknown as Trade[])
   replaceTrades(merged)
 
   // Batch push local-only trades

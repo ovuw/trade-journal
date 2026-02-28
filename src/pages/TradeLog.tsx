@@ -1,5 +1,7 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
 import { useNavigate } from 'react-router-dom'
+import { useToast } from '../components/Toast'
 import {
   Plus, Upload, Download, ChevronUp, ChevronDown, ChevronsUpDown,
   Trash2, Pencil, Image, X, AlertTriangle, ChevronRight, ChevronDown as ExpandIcon,
@@ -338,13 +340,26 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete }: {
   )
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
+
+function isTyping(): boolean {
+  const el = document.activeElement
+  if (!el) return false
+  if (INPUT_TAGS.has(el.tagName)) return true
+  if ((el as HTMLElement).isContentEditable) return true
+  return false
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function TradeLog() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const [allTrades, setAllTrades] = useState(() => getTrades())
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'entry_time', dir: 'desc' })
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+  const [sort, setSort] = usePersistentState<{ key: SortKey; dir: 'asc' | 'desc' }>('tj_ui_tradelog_sort', { key: 'entry_time', dir: 'desc' })
+  const [filters, setFilters] = usePersistentState<Filters>('tj_ui_tradelog_filters', DEFAULT_FILTERS)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showImport, setShowImport] = useState(false)
@@ -352,8 +367,11 @@ export default function TradeLog() {
   const [page, setPage] = useState(1)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
+  const undoTradeRef = useRef<(typeof allTrades)[0] | null>(null)
+  const rowRefsMap = useRef<Map<string, HTMLTableRowElement>>(new Map())
 
-  useEffect(() => { setPage(1) }, [filters, sort])
+  useEffect(() => { setPage(1); setFocusedRowIndex(null) }, [filters, sort])
 
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) =>
     setFilters(prev => ({ ...prev, [key]: value }))
@@ -393,6 +411,50 @@ export default function TradeLog() {
   const winners = sorted.filter(t => t.pnl > 0).length
   const winRate = sorted.length > 0 ? (winners / sorted.length) * 100 : 0
 
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setFocusedRowIndex(prev => {
+          if (prev === null) return 0
+          return Math.min(prev + 1, paginated.length - 1)
+        })
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusedRowIndex(prev => {
+          if (prev === null) return 0
+          return Math.max((prev ?? 0) - 1, 0)
+        })
+      } else if (e.key === 'Enter') {
+        if (focusedRowIndex === null) return
+        const trade = paginated[focusedRowIndex]
+        if (trade) setExpandedId(prev => prev === trade.id ? null : trade.id)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusedRowIndex, paginated])
+
+  // Scroll focused row into view
+  useEffect(() => {
+    if (focusedRowIndex === null) return
+    const trade = paginated[focusedRowIndex]
+    if (!trade) return
+    const el = rowRefsMap.current.get(trade.id)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [focusedRowIndex, paginated])
+
+  const handleUndo = useCallback(() => {
+    const t = undoTradeRef.current
+    if (!t) return
+    const { id: _id, created_at: _ca, updated_at: _ua, ...tradeData } = t
+    saveTrade(tradeData)
+    setAllTrades(getTrades())
+    undoTradeRef.current = null
+  }, [])
+
   const handleDelete = () => {
     if (!deleteId) return
     const trade = allTrades.find(t => t.id === deleteId)
@@ -402,6 +464,10 @@ export default function TradeLog() {
     if (expandedId === deleteId) setExpandedId(null)
     setSelected(prev => { const n = new Set(prev); n.delete(deleteId); return n })
     setDeleteId(null)
+    if (trade) {
+      undoTradeRef.current = trade
+      showToast('Trade deleted', 'info', { label: 'Undo', onClick: handleUndo })
+    }
   }
 
   const handleBulkDelete = () => {
@@ -608,8 +674,9 @@ export default function TradeLog() {
               </tr>
             </thead>
             <tbody>
-              {paginated.flatMap(trade => {
+              {paginated.flatMap((trade, rowIdx) => {
                 const isExpanded = expandedId === trade.id
+                const isFocused = focusedRowIndex === rowIdx
                 const setupTag = getSetupTag(trade.setup_tag_id)
                 const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
                 const rulesBrokenCount = trade.rules_broken_ids.length
@@ -619,8 +686,14 @@ export default function TradeLog() {
                 const mainRow = (
                   <tr
                     key={trade.id}
-                    onClick={() => setExpandedId(isExpanded ? null : trade.id)}
-                    className={`border-b border-border cursor-pointer transition-colors hover:bg-bg-hover group ${isProfit ? 'border-l-2 border-l-profit/50' : 'border-l-2 border-l-loss/50'}`}
+                    ref={el => {
+                      if (el) rowRefsMap.current.set(trade.id, el)
+                      else rowRefsMap.current.delete(trade.id)
+                    }}
+                    tabIndex={0}
+                    onClick={() => { setExpandedId(isExpanded ? null : trade.id); setFocusedRowIndex(rowIdx) }}
+                    onFocus={() => setFocusedRowIndex(rowIdx)}
+                    className={`border-b border-border cursor-pointer transition-colors hover:bg-bg-hover group ${isProfit ? 'border-l-2 border-l-profit/50' : 'border-l-2 border-l-loss/50'} ${isFocused ? 'ring-1 ring-inset ring-accent/50 bg-bg-hover' : ''}`}
                   >
                     <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                       <input
@@ -719,7 +792,7 @@ export default function TradeLog() {
           </span>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage(p => p - 1)}
+              onClick={() => { setPage(p => p - 1); setFocusedRowIndex(null) }}
               disabled={page === 1}
               className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
             >
@@ -727,7 +800,7 @@ export default function TradeLog() {
             </button>
             <span className="text-xs text-text-secondary">Page {page} of {totalPages}</span>
             <button
-              onClick={() => setPage(p => p + 1)}
+              onClick={() => { setPage(p => p + 1); setFocusedRowIndex(null) }}
               disabled={page === totalPages}
               className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
             >

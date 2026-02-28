@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from "react-router-dom";
+import { useToast } from './Toast'
 import {
   LayoutDashboard,
   PlusCircle,
@@ -14,7 +15,9 @@ import {
   ChevronRight,
   Sparkles,
   FlaskConical,
+  Zap,
 } from "lucide-react";
+import QuickTradeModal from './QuickTradeModal'
 
 const NAV_GROUPS = [
   {
@@ -74,10 +77,39 @@ function NavItem({
   )
 }
 
+// ─── Sync status ──────────────────────────────────────────────────────────────
+
+const SYNC_STATUS_KEY = 'tj_sync_status'
+
+type SyncState = { status: 'ok' | 'error'; ts: number }
+
+function loadSyncState(): SyncState | null {
+  try {
+    const raw = localStorage.getItem(SYNC_STATUS_KEY)
+    return raw ? (JSON.parse(raw) as SyncState) : null
+  } catch {
+    return null
+  }
+}
+
+function timeAgo(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000)
+  if (diff < 60) return 'just now'
+  const mins = Math.floor(diff / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
+
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(() =>
     localStorage.getItem('tj_sidebar_collapsed') === 'true'
   )
+  const [quickEntryOpen, setQuickEntryOpen] = useState(false)
+  const { showToast } = useToast()
 
   function toggle() {
     const next = !collapsed
@@ -85,10 +117,43 @@ export default function Layout() {
     localStorage.setItem('tj_sidebar_collapsed', String(next))
   }
 
+  const [syncState, setSyncState] = useState<SyncState | null>(() => loadSyncState())
+  const [, setTick] = useState(0) // triggers re-render to update "X min ago"
+
+  useEffect(() => {
+    const onSynced = () => {
+      const s: SyncState = { status: 'ok', ts: Date.now() }
+      localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(s))
+      setSyncState(s)
+      showToast('Synced successfully', 'success')
+    }
+    const onError = () => {
+      const s: SyncState = { status: 'error', ts: Date.now() }
+      localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(s))
+      setSyncState(s)
+      showToast('Sync failed', 'error')
+    }
+    window.addEventListener('tj:synced', onSynced)
+    window.addEventListener('tj:sync-error', onError)
+    return () => {
+      window.removeEventListener('tj:synced', onSynced)
+      window.removeEventListener('tj:sync-error', onError)
+    }
+  // showToast is stable (useCallback) — safe to include
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showToast])
+
+  useEffect(() => {
+    if (!syncState) return
+    const timer = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(timer)
+  }, [syncState])
+
   return (
     <div className="flex h-full bg-bg-primary">
       {/* Sidebar */}
       <aside
+        aria-label="Sidebar navigation"
         className={`flex-shrink-0 bg-bg-secondary border-r border-border flex flex-col transition-[width] duration-200 overflow-hidden ${
           collapsed ? 'w-14' : 'w-56'
         }`}
@@ -117,7 +182,21 @@ export default function Layout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-2 overflow-y-auto overflow-x-hidden">
+        <nav aria-label="Main navigation" className="flex-1 px-2 py-2 overflow-y-auto overflow-x-hidden">
+          {/* Quick Entry button */}
+          <div className="mb-2">
+            <button
+              onClick={() => setQuickEntryOpen(true)}
+              title={collapsed ? 'Quick Entry' : undefined}
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all w-full
+                ${collapsed ? 'justify-center' : ''}
+                text-accent hover:bg-accent/10`}
+            >
+              <Zap size={16} className="shrink-0" />
+              {!collapsed && <span className="font-medium">Quick Entry</span>}
+            </button>
+          </div>
+
           {NAV_GROUPS.map((group, gi) => (
             <div key={group.label} className={gi > 0 ? 'mt-1' : ''}>
               {!collapsed && (
@@ -136,6 +215,24 @@ export default function Layout() {
             </div>
           ))}
         </nav>
+
+        {/* Sync status indicator */}
+        {syncState && !collapsed && (
+          <div className="px-4 pb-2 flex items-center gap-1.5">
+            <span className={`text-[8px] leading-none ${syncState.status === 'ok' ? 'text-profit' : 'text-loss'}`}>●</span>
+            <span className="text-[11px] text-text-muted">
+              {syncState.status === 'ok' ? `Synced ${timeAgo(syncState.ts)}` : 'Sync error'}
+            </span>
+          </div>
+        )}
+        {syncState && collapsed && (
+          <div
+            className="flex justify-center pb-2"
+            title={syncState.status === 'ok' ? `Synced ${timeAgo(syncState.ts)}` : 'Sync error'}
+          >
+            <span className={`text-[8px] leading-none ${syncState.status === 'ok' ? 'text-profit' : 'text-loss'}`}>●</span>
+          </div>
+        )}
 
         {/* Settings + expand at bottom */}
         <div className="px-2 py-2 border-t border-border space-y-0.5">
@@ -173,9 +270,11 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
+      <main aria-label="Main content" className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
+
+      {quickEntryOpen && <QuickTradeModal onClose={() => setQuickEntryOpen(false)} />}
     </div>
   );
 }

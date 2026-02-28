@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart,
   Bar,
@@ -12,7 +14,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { AlertTriangle, ChevronDown, ChevronRight, TrendingDown, Zap, ClipboardCheck, Trophy } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, TrendingDown, TrendingUp, Zap, ClipboardCheck, Trophy } from 'lucide-react'
 import { getTrades, getRules, getChecklistState, getChecklistItems, getMistakeTags } from '../lib/db'
 import { Rule, Trade } from '../types'
 
@@ -427,9 +429,10 @@ function Empty({ message }: { message: string }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Review() {
-  const [period, setPeriod] = useState<Period>('month')
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
+  const navigate = useNavigate()
+  const [period, setPeriod] = usePersistentState<Period>('tj_ui_review_period', 'month')
+  const [customStart, setCustomStart] = usePersistentState('tj_ui_review_custom_start', '')
+  const [customEnd, setCustomEnd] = usePersistentState('tj_ui_review_custom_end', '')
   const [expandedRule, setExpandedRule] = useState<string | null>(null)
 
   const allTrades = useMemo(() => getTrades(), [])
@@ -476,11 +479,16 @@ export default function Review() {
           <h1 className="text-2xl font-semibold text-text-primary">Review</h1>
           <p className="text-text-secondary text-sm">Rule violations, mistake patterns, and improvement over time</p>
         </div>
-        <div className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1">
+        <div
+          role="group"
+          aria-label="Time period"
+          className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1"
+        >
           {PERIODS.map(p => (
             <button
               key={p.key}
               onClick={() => setPeriod(p.key)}
+              aria-pressed={period === p.key}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                 period === p.key
                   ? 'bg-accent text-white'
@@ -528,8 +536,18 @@ export default function Review() {
       )}
 
       {filtered.length === 0 && (
-        <div className="bg-bg-card border border-border rounded-lg p-8 text-center">
-          <p className="text-text-muted">No trades in this period. Log some trades to see your review.</p>
+        <div className="bg-bg-card border border-border rounded-lg p-10 flex flex-col items-center text-center">
+          <TrendingUp size={36} className="text-text-muted mb-3" aria-hidden="true" />
+          <h2 className="text-base font-semibold text-text-primary mb-1">No trades in this period</h2>
+          <p className="text-text-secondary text-sm mb-5">
+            Log trades to see rule violations, mistake patterns, and improvement trends over time.
+          </p>
+          <button
+            onClick={() => navigate('/new-trade')}
+            className="btn-primary text-sm"
+          >
+            Log a Trade →
+          </button>
         </div>
       )}
 
@@ -561,6 +579,7 @@ export default function Review() {
                     {/* Rule row */}
                     <button
                       onClick={() => setExpandedRule(expandedRule === rule.ruleId ? null : rule.ruleId)}
+                      aria-expanded={expandedRule === rule.ruleId}
                       className="w-full grid grid-cols-[1fr_80px_100px_110px_110px_80px] gap-2 px-3 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-sm items-center"
                     >
                       <span className="flex items-center gap-1.5 text-left">

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
 import { FlaskConical } from 'lucide-react'
 import { getTrades } from '../lib/db'
 import type { Trade } from '../types'
@@ -163,7 +164,7 @@ function fmtPnl(n: number) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Simulator() {
-  const [period, setPeriod] = useState<Period>('all')
+  const [period, setPeriod] = usePersistentState<Period>('tj_ui_simulator_period', 'all')
   const [activeScenario, setActiveScenario] = useState<string>(SCENARIOS[0].id)
 
   const allTrades = useMemo(() => getTrades(), [])

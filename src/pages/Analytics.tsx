@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { usePersistentState } from '../hooks/usePersistentState'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart,
   Bar,
@@ -10,7 +12,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts'
-import { Flame, TrendingUp } from 'lucide-react'
+import { Flame, TrendingUp, BarChart2 } from 'lucide-react'
 import { getTrades, getSetupTags } from '../lib/db'
 import { Trade, AssetClass } from '../types'
 
@@ -305,9 +307,10 @@ function Empty({ message }: { message: string }) {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Analytics() {
-  const [period, setPeriod] = useState<Period>('month')
-  const [customStart, setCustomStart] = useState('')
-  const [customEnd, setCustomEnd] = useState('')
+  const navigate = useNavigate()
+  const [period, setPeriod] = usePersistentState<Period>('tj_ui_analytics_period', 'month')
+  const [customStart, setCustomStart] = usePersistentState('tj_ui_analytics_custom_start', '')
+  const [customEnd, setCustomEnd] = usePersistentState('tj_ui_analytics_custom_end', '')
 
   const allTrades = useMemo(() => getTrades(), [])
   const filtered = useMemo(
@@ -335,11 +338,16 @@ export default function Analytics() {
           <h1 className="text-2xl font-semibold text-text-primary">Analytics</h1>
           <p className="text-text-secondary text-sm">Performance breakdowns to find your edge</p>
         </div>
-        <div className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1">
+        <div
+          role="group"
+          aria-label="Time period"
+          className="flex gap-1 bg-bg-secondary border border-border rounded-lg p-1"
+        >
           {PERIODS.map(p => (
             <button
               key={p.key}
               onClick={() => setPeriod(p.key)}
+              aria-pressed={period === p.key}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                 period === p.key ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'
               }`}
@@ -387,8 +395,18 @@ export default function Analytics() {
       )}
 
       {!hasData ? (
-        <div className="bg-bg-card border border-border rounded-lg p-8 text-center">
-          <p className="text-text-muted">No trades in this period. Log some trades to see analytics.</p>
+        <div className="bg-bg-card border border-border rounded-lg p-10 flex flex-col items-center text-center">
+          <BarChart2 size={36} className="text-text-muted mb-3" aria-hidden="true" />
+          <h2 className="text-base font-semibold text-text-primary mb-1">No trades in this period</h2>
+          <p className="text-text-secondary text-sm mb-5">
+            Log trades to unlock performance breakdowns — setup edge, ticker performance, time-of-day analysis, and more.
+          </p>
+          <button
+            onClick={() => navigate('/new-trade')}
+            className="btn-primary text-sm"
+          >
+            Log a Trade →
+          </button>
         </div>
       ) : (
         <>
