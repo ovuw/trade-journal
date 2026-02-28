@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { useAutoSync } from "./hooks/useAutoSync";
+import { useIbkrSync } from "./hooks/useIbkrSync";
 import { usePreMarketReminder } from "./hooks/usePreMarketReminder";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import UpdaterDialog from "./components/UpdaterDialog";
@@ -33,6 +34,7 @@ function PageLoader() {
 function App() {
   runMigrations()
   useAutoSync();
+  useIbkrSync();
   usePreMarketReminder();
   useKeyboardShortcuts();
   return (

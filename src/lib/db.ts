@@ -494,6 +494,29 @@ export function saveNoteTemplate(template: string): void {
   localStorage.setItem(NOTE_TEMPLATE_KEY, template)
 }
 
+// ── IBKR Flex Query config ─────────────────────────────────────────────────────
+const IBKR_CONFIG_KEY = 'tj_ibkr_config'
+
+export interface IbkrConfig {
+  flexToken: string
+  queryId: string
+  autoSync: boolean
+}
+
+export function getIbkrConfig(): IbkrConfig | null {
+  try {
+    const s = localStorage.getItem(IBKR_CONFIG_KEY)
+    return s ? JSON.parse(s) as IbkrConfig : null
+  } catch {
+    return null
+  }
+}
+
+export function saveIbkrConfig(config: IbkrConfig | null): void {
+  if (config) localStorage.setItem(IBKR_CONFIG_KEY, JSON.stringify(config))
+  else localStorage.removeItem(IBKR_CONFIG_KEY)
+}
+
 // ── AI Analyses (save last 10) ─────────────────────────────────────────────────
 
 const AI_ANALYSES_KEY = 'tj_ai_analyses'

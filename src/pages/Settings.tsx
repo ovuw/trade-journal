@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
-  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell, Zap,
+  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell, Zap, Link,
 } from 'lucide-react'
 import { check as checkForUpdates } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -9,7 +9,9 @@ import {
   getAccounts, saveAccounts, getActiveAccountId, setActiveAccountId, type AccountRecord,
   saveCalcSettings, getSupabaseConfig, saveSupabaseConfig, getTrades,
   saveRules, saveChecklistItems, getReminderSettings, saveReminderSettings,
+  getIbkrConfig, saveIbkrConfig, type IbkrConfig,
 } from '../lib/db'
+import { syncIbkr, type IbkrSyncResult } from '../lib/ibkr'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { loadSampleData } from '../lib/seedData'
 import {
@@ -161,12 +163,12 @@ function triggerDownload(content: string, filename: string, mimeType: string) {
 }
 
 function exportTaxCSV(year: string) {
-  const trades = getTrades().filter((t: Trade) => t.exit_time.startsWith(year))
+  const trades = getTrades().filter((t: Trade) => t.exit_time != null && t.exit_time.startsWith(year))
   const header = ['Date', 'Ticker', 'Direction', 'Asset Class', 'Entry $', 'Exit $', 'Qty', 'Gross P/L', 'Fees', 'Net P/L']
   const rows = trades.map((t: Trade) => [
-    t.exit_time.split('T')[0], t.ticker, t.direction.toUpperCase(), t.asset_class,
-    t.entry_price.toFixed(4), t.exit_price.toFixed(4), t.quantity.toString(),
-    (t.pnl + t.fees).toFixed(2), t.fees.toFixed(2), t.pnl.toFixed(2),
+    t.exit_time!.split('T')[0], t.ticker, t.direction.toUpperCase(), t.asset_class,
+    t.entry_price.toFixed(4), t.exit_price!.toFixed(4), t.quantity.toString(),
+    ((t.pnl ?? 0) + t.fees).toFixed(2), t.fees.toFixed(2), (t.pnl ?? 0).toFixed(2),
   ])
   triggerDownload([header, ...rows].map(r => r.join(',')).join('\n'), `trade-journal-${year}-taxes.csv`, 'text/csv')
 }
@@ -222,6 +224,16 @@ export default function Settings() {
   const [reminder, setReminder] = useState(() => getReminderSettings())
   const [reminderSaved, setReminderSaved] = useState(false)
 
+  // ── IBKR ──────────────────────────────────────────────────────────────────────
+  const [ibkrForm, setIbkrForm] = useState<IbkrConfig>(() => {
+    const cfg = getIbkrConfig()
+    return cfg ?? { flexToken: '', queryId: '', autoSync: true }
+  })
+  const [ibkrSaved, setIbkrSaved] = useState(false)
+  const [ibkrSyncing, setIbkrSyncing] = useState(false)
+  const [ibkrResult, setIbkrResult] = useState<IbkrSyncResult | null>(null)
+  const [ibkrError, setIbkrError] = useState('')
+
   // ── Updates ───────────────────────────────────────────────────────────────────
   type UpdateState = { kind: 'idle' } | { kind: 'checking' } | { kind: 'up-to-date' } | { kind: 'available'; version: string } | { kind: 'downloading'; progress: number } | { kind: 'ready' } | { kind: 'error'; message: string }
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' })
@@ -252,7 +264,7 @@ export default function Settings() {
 
   const taxYears = useMemo(() => {
     const years = new Set(
-      getTrades().map((t: Trade) => t.exit_time.substring(0, 4)).filter(y => /^\d{4}$/.test(y))
+      getTrades().filter((t: Trade) => t.exit_time != null).map((t: Trade) => t.exit_time!.substring(0, 4)).filter(y => /^\d{4}$/.test(y))
     )
     return [...years].sort().reverse()
   }, [])
@@ -366,6 +378,29 @@ export default function Settings() {
     } catch {
       setSyncError('Sync failed. Check your Supabase table setup.')
       setSyncStatus('error')
+    }
+  }
+
+  // ── IBKR handlers ────────────────────────────────────────────────────────────
+
+  function handleSaveIbkr() {
+    saveIbkrConfig(ibkrForm.flexToken || ibkrForm.queryId ? ibkrForm : null)
+    setIbkrSaved(true)
+    setTimeout(() => setIbkrSaved(false), 2000)
+  }
+
+  async function handleSyncIbkrNow() {
+    if (!ibkrForm.flexToken || !ibkrForm.queryId) return
+    setIbkrSyncing(true)
+    setIbkrError('')
+    setIbkrResult(null)
+    try {
+      const result = await syncIbkr(ibkrForm.flexToken, ibkrForm.queryId)
+      setIbkrResult(result)
+    } catch (err) {
+      setIbkrError(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setIbkrSyncing(false)
     }
   }
 
@@ -654,6 +689,81 @@ export default function Settings() {
             </button>
             {reminderSaved && <span className="flex items-center gap-1 text-xs text-profit"><Check size={12} /> Saved</span>}
           </div>
+        </div>
+      </Section>
+
+      {/* ── IBKR Auto-Import ── */}
+      <Section icon={Link} title="IBKR Auto-Import">
+        <div className="space-y-4">
+          <p className="text-xs text-text-secondary">
+            Automatically import closed trades from Interactive Brokers using Flex Web Services.
+            In Client Portal, go to <span className="text-text-primary">Reports → Flex Queries</span>, create a query
+            with <span className="text-text-primary">ClosedLots</span> activity, then paste your token and query ID below.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-text-secondary block mb-1">Flex Web Services Token</label>
+              <input
+                type="password"
+                value={ibkrForm.flexToken}
+                onChange={e => setIbkrForm(f => ({ ...f, flexToken: e.target.value }))}
+                placeholder="Your Flex token"
+                className="input text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-text-secondary block mb-1">Query ID</label>
+              <input
+                type="text"
+                value={ibkrForm.queryId}
+                onChange={e => setIbkrForm(f => ({ ...f, queryId: e.target.value }))}
+                placeholder="123456789"
+                className="input text-sm font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-text-primary">Auto-sync on launch</span>
+            <button
+              onClick={() => setIbkrForm(f => ({ ...f, autoSync: !f.autoSync }))}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${ibkrForm.autoSync ? 'bg-accent' : 'bg-gray-600'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${ibkrForm.autoSync ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleSaveIbkr}
+              className="btn-primary text-sm py-1.5 px-4"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => { void handleSyncIbkrNow() }}
+              disabled={!ibkrForm.flexToken || !ibkrForm.queryId || ibkrSyncing}
+              className="btn-secondary text-sm py-1.5 px-3 flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={ibkrSyncing ? 'animate-spin' : ''} />
+              {ibkrSyncing ? 'Importing…' : 'Import Now'}
+            </button>
+            {ibkrSaved && <span className="flex items-center gap-1 text-xs text-profit"><Check size={12} /> Saved</span>}
+          </div>
+
+          {ibkrResult && (
+            <p className="text-xs text-text-secondary">
+              Last import: <span className="text-profit">+{ibkrResult.imported} new</span>
+              {ibkrResult.updated > 0 && <> · {ibkrResult.updated} updated</>}
+              {ibkrResult.skipped > 0 && <> · {ibkrResult.skipped} skipped</>}
+            </p>
+          )}
+          {ibkrError && <p className="text-xs text-loss">{ibkrError}</p>}
+
+          <p className="text-xs text-text-muted border-t border-border pt-3">
+            Duplicate trades are detected by IBKR transaction ID — re-importing only updates prices, never overwrites your notes, tags, or rules.
+          </p>
         </div>
       </Section>
 

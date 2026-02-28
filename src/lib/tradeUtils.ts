@@ -24,7 +24,7 @@ export function nowLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** Calculate P&L for a trade (fees default to 0). */
+/** Calculate P&L for a trade (fees default to 0). Rounded to 2dp. */
 export function calcPnl(
   direction: 'long' | 'short',
   entry: number,
@@ -32,12 +32,14 @@ export function calcPnl(
   qty: number,
   fees = 0
 ): number {
-  return direction === 'long'
+  const raw = direction === 'long'
     ? (exit - entry) * qty - fees
     : (entry - exit) * qty - fees
+  return Math.round(raw * 100) / 100
 }
 
-/** Calculate result % relative to position cost. Returns 0 if entry is 0. */
+/** Calculate result % relative to position cost. Returns 0 if entry is 0. Rounded to 2dp. */
 export function calcResultPct(pnl: number, entry: number, qty: number): number {
-  return entry > 0 ? (pnl / (entry * qty)) * 100 : 0
+  if (entry <= 0) return 0
+  return Math.round((pnl / (entry * qty)) * 100 * 100) / 100
 }

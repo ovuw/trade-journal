@@ -7,10 +7,11 @@
 - Full original build spec (archived): `tasks/build-plan-archive.md`
 
 ## Current State
-- **Version:** 0.3.5 (unreleased changes — bump to 0.4.0 before next tag)
-- **Status:** All 12 phases complete + full audit pass complete. App is in daily use.
+- **Version:** 0.4.0 (released 2026-02-28)
+- **Status:** All 12 phases + full audit pass complete. App is in daily use.
 - Stack: Tauri + React + TypeScript + localStorage (primary) + Supabase (optional sync)
 - Auto-updater live via GitHub Releases — triggers on `v*` tags
+- GitHub repo is **public** (required for unauthenticated asset downloads / auto-updater)
 
 ## Key Paths
 - Types + default data: `src/types/index.ts` (DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS)
@@ -55,23 +56,34 @@
 - **Windows CI workflow**: `.github/workflows/release.yml` now has 3 jobs — `build` (matrix), and new `finalize` job that downloads both platform `.sig` artifacts and generates combined `latest.json` with `darwin-aarch64` + `windows-x86_64`
 - **README.md**: written — features, dev setup, project structure, release workflow
 
+## Completed This Session (2026-02-28, continued)
+
+### IBKR Auto-Import (Flex Query)
+- `src/lib/ibkr.ts` — Flex Query two-step API, XML parsing (`parseLots`, `parseDateTime`, `parseAssetClass`), `syncIbkr()` with duplicate detection + price-only update
+- `src/hooks/useIbkrSync.ts` — auto-sync on launch (5s delay, fires after Supabase sync), `tj:ibkr-synced` / `tj:ibkr-error` events
+- `src/__tests__/ibkrParser.test.ts` — 17 new tests (parseDateTime, parseAssetClass, parseLots edge cases)
+- `src-tauri/src/lib.rs` — `fetch_url` Tauri command via `reqwest` (bypasses CORS)
+- `src-tauri/Cargo.toml` — `reqwest = { version = "0.12", features = ["rustls-tls"] }`
+- `src/types/index.ts` — `ibkr_transaction_id?: string | null` added to Trade
+- `src/lib/db.ts` — `IbkrConfig`, `getIbkrConfig()`, `saveIbkrConfig()` added
+- `src/pages/Settings.tsx` — IBKR Auto-Import section (token, query ID, auto-sync toggle, Import Now button, result/error feedback)
+- `src/App.tsx` — `useIbkrSync()` wired in
+- Tests: 86 total (69 prior + 17 new), all pass. `tsc --noEmit` zero errors.
+
 ## Pending Work
 
-### Tag v0.4.0 release
-All the above changes are uncommitted. When ready:
-1. Bump version to `0.4.0` in `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml`
-2. `npx tsc --noEmit && npm test` — confirm clean
-3. Commit, tag, push
-
 ### Verify Windows auto-updater
-The CI workflow is correct in theory but untested in production. After the next release tag:
-- Confirm the Windows `finalize` job completes successfully
-- Check `latest.json` in the release has both `darwin-aarch64` and `windows-x86_64` entries
+The v0.4.0 CI run completed including the Windows build and `latest.json` generation.
+- Confirm `latest.json` has both `darwin-aarch64` and `windows-x86_64` entries ← check once Windows machine available
 - Verify Windows app shows update dialog on next version
+
+### Secure credentials (low priority — personal use)
+Anthropic API key + Supabase credentials stored as plaintext in localStorage.
+Future: consider `tauri-plugin-stronghold` or OS keychain.
 
 ## Tsc Rule
 Always run `npx tsc --noEmit` after every TypeScript change. Zero errors required before marking anything done.
-Also run `npm test` — 47 tests must pass.
+Also run `npm test` — 86 tests must pass.
 
 ## UX Audit (2026-02-28) — COMPLETE ✓
 
@@ -93,20 +105,48 @@ All 14 items shipped. See files modified for details.
 
 ### Design — Consider light mode toggle (low priority — dark is a deliberate design choice for trading)
 
-## App Audit (2026-02-28)
+## Math Audit (2026-02-28)
 
-### Weak / Partial gaps — actionable items
+### Summary
 
-- [ ] Performance — Add `useMemo` for expensive per-render calculations in Analytics and Dashboard (stats, filtered trade lists) to prevent unnecessary recomputation on unrelated state changes
-- [ ] Performance — Debounce localStorage writes in QuickTradeModal (currently saves on every keystroke with no debounce)
-- [ ] Database — Add a localStorage schema version key (`tj_schema_version`) and a migration runner in db.ts; right now any Trade type field addition silently leaves old records with `undefined` values
-- [ ] Database — Enforce a screenshot storage budget: check localStorage usage before saving a new screenshot and warn/reject if approaching quota (localStorage limit ~5–10 MB)
-- [ ] Database — Orphaned screenshot keys: when a trade is deleted via bulk delete, `deleteScreenshots()` is not called — add cleanup to `deleteTrades()` in db.ts
-- [ ] QA / Testing — Add page-level integration tests for Analytics calculations (win rate, profit factor, streak) — currently zero tests cover page logic
-- [ ] QA / Testing — Add a Playwright or Tauri WebDriver E2E test for the critical happy path: log trade → appear in Trade Log → appear in Analytics
-- [ ] Error Monitoring — ErrorBoundary currently logs to console only; add structured error capture (at minimum, write crashes to a local log file via Tauri's `fs` plugin so errors are debuggable in production)
-- [ ] Monitoring / Observability — No crash telemetry whatsoever; consider Sentry with the Tauri integration (self-hosted or free tier) so production crashes are visible without user report
-- [ ] Caching — `getTrades()` is called independently in every page on mount with no shared cache; a lightweight in-memory cache or a TradesContext would prevent redundant localStorage parses as trade history grows
-- [ ] Accessibility — Charts (Recharts) have no accessible alternative; add `aria-label` descriptions or a data table toggle for the main Analytics charts
-- [ ] Accessibility — Profit/loss is communicated by color only (green/red); add a text indicator (e.g. "▲" / "▼" prefix or "Win"/"Loss" badge) for colorblind users
-- [ ] Security — Anthropic API key and Supabase credentials stored as plaintext in localStorage; consider using Tauri's secure storage plugin (`tauri-plugin-stronghold` or OS keychain) for sensitive credentials
+**Files audited:** `tradeUtils.ts`, `analyticsUtils.ts`, `Analytics.tsx`, `Dashboard.tsx`, `TradeLog.tsx`, `NewTrade.tsx`, `Review.tsx`, `PositionCalculator.tsx`, `QuickTradeModal.tsx`
+
+**Correct (no action needed):**
+- P&L formula (long/short): ✓ `tradeUtils.ts:35-37`
+- Result % on position cost: ✓ `tradeUtils.ts:41-43`
+- Win rate (all pages use `pnl > 0`): ✓
+- Profit factor (`grossProfit / grossLoss`, ∞ sentinel): ✓ `Dashboard.tsx:152`
+- Max drawdown (peak-tracking loop, starts from 0): ✓ `Dashboard.tsx:157-163`
+- Equity curve (rounds each step to 2dp): ✓ `Dashboard.tsx:183`
+- Actual R (`pnl / initial_risk`): ✓ `NewTrade.tsx:233`
+- Planned R:R (`|target-entry| / |entry-stop|`): ✓ `NewTrade.tsx:231`, `PositionCalculator.tsx:47`
+- Position size calculator (`floor(riskDollars / stopDist)`): ✓ `PositionCalculator.tsx:41`
+- DOW / time-of-day grouping: ✓ `Analytics.tsx:153-180`
+- Streak tracking: ✓ `analyticsUtils.ts:35-55`
+- Violation rate, rule win/loss comparison, checklist adherence: ✓ `Review.tsx`
+- Float equality: no direct `===` comparisons on floats found anywhere ✓
+- Cost basis / realized vs. unrealized: N/A — app records only closed trades
+
+**Partial / Incorrect — see actionable items below**
+
+### Actionable Items
+
+- [x] **avgLoss definition inconsistent** — `Dashboard.tsx:147` uses `pnl <= 0` (includes break-even trades in loss bucket), while `analyticsUtils.ts:62` and `Review.tsx:313` use `pnl < 0`. If any break-even trade (pnl = 0) exists, Dashboard avgLoss is lower than Analytics avgLoss for the same period. Fix: change `Dashboard.tsx:147` to `trades.filter(t => t.pnl < 0)` for consistency.
+- [x] **EV overstates loss side when break-even trades exist** — `analyticsUtils.ts:68` uses `(100 - winRate) / 100` as P(loss), but when break-even trades exist P(win) + P(loss) < 1. This overstates expected losses in the EV formula. Correct formula: `(wins.length / ts.length) * avgWin - (losses.length / ts.length) * avgLoss`.
+- [x] **Trade P&L not rounded to 2dp on save** — `NewTrade.tsx:226` stores raw float `(exit - entry) * qty - fees`. For prices like $10.01 × 33 shares, result can be `99.99999...` instead of `100.00`. The equity curve rounds at each step but individual records don't. Fix: `Math.round(pnl * 100) / 100` before storing, and same for `result_pct`. Low impact in practice for equities.
+
+## App Audit (2026-02-28) — COMPLETE ✓
+
+- [x] Performance — `useMemo` added for all expensive derivations in Analytics, Dashboard, TradeLog
+- [x] Performance — QuickTradeModal draft save debounced at 400ms
+- [x] Database — Schema migrations runner (`runMigrations()` in db.ts, `tj_schema_version` key)
+- [x] Database — Screenshot storage budget enforced (`estimateLocalStorageBytes` + 8MB quota guard)
+- [x] Database — Orphaned screenshot cleanup added to `deleteTrades()` in db.ts
+- [x] QA / Testing — 22 unit tests added for analyticsUtils (`calcStreak`, `calcSetupBreakdown`, `calcRuleBreakdown`) — 69 total
+- [x] Error Monitoring — ErrorBoundary writes structured crash log to `tj_crash_log` (last 5 entries), "Copy error report" button in error UI
+- [x] Caching — Module-level `_tradesCache` in db.ts, invalidated on every write
+- [x] Accessibility — All Recharts charts wrapped in `<div role="img" aria-label="...">`
+- [x] Accessibility — `+` prefix on all positive P/L values across Dashboard, TradeLog, Analytics
+- [x] E2E tests — intentionally skipped; unit tests cover calculation logic sufficiently
+- [x] Sentry — intentionally skipped; replaced by local crash log in ErrorBoundary
+- [ ] Security — Anthropic API key + Supabase credentials in plaintext localStorage; consider `tauri-plugin-stronghold` (low priority — personal use app)
