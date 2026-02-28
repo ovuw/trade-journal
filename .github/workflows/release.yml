@@ -113,33 +113,37 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION=$(node -e "const c=require('./src-tauri/tauri.conf.json');console.log(c.version)")
 
-          mkdir -p /tmp/release
+          # Use RUNNER_TEMP — a real Windows path both bash and Python agree on
+          OUTDIR="$RUNNER_TEMP/release"
+          mkdir -p "$OUTDIR"
 
-          # Zip the NSIS installer using Python to avoid path+space issues with 7z
+          # Zip the NSIS installer using Python (avoids path+space issues with 7z)
           python3 -c "
           import zipfile, os
+          outdir = os.environ['RUNNER_TEMP'].replace(chr(92), '/') + '/release'
+          os.makedirs(outdir, exist_ok=True)
           exe = 'src-tauri/target/release/bundle/nsis/Trade Journal_${VERSION}_x64-setup.exe'
-          out = '/tmp/release/Trade.Journal_${VERSION}_x64-setup.nsis.zip'
+          out = outdir + '/Trade.Journal_${VERSION}_x64-setup.nsis.zip'
           with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
               zf.write(exe, os.path.basename(exe))
           print('Created', out)
           "
 
-          NSIS_ZIP="/tmp/release/Trade.Journal_${VERSION}_x64-setup.nsis.zip"
+          NSIS_ZIP="$OUTDIR/Trade.Journal_${VERSION}_x64-setup.nsis.zip"
 
           # Sign the zip (reads TAURI_SIGNING_PRIVATE_KEY + PASSWORD from env automatically)
           npx tauri signer sign "$NSIS_ZIP"
 
           # Copy sig to a fixed filename so the finalize job can find it without knowing VERSION
-          cp "${NSIS_ZIP}.sig" /tmp/release/windows.nsis.zip.sig
+          cp "${NSIS_ZIP}.sig" "$OUTDIR/windows.nsis.zip.sig"
 
           cp "src-tauri/target/release/bundle/nsis/Trade Journal_${VERSION}_x64-setup.exe" \
-            "/tmp/release/Trade.Journal_${VERSION}_x64-setup.exe"
+            "$OUTDIR/Trade.Journal_${VERSION}_x64-setup.exe"
           cp "src-tauri/target/release/bundle/msi/Trade Journal_${VERSION}_x64_en-US.msi" \
-            "/tmp/release/Trade.Journal_${VERSION}_x64_en-US.msi"
+            "$OUTDIR/Trade.Journal_${VERSION}_x64_en-US.msi"
 
-          gh release upload "$TAG" "/tmp/release/Trade.Journal_${VERSION}_x64-setup.exe" --clobber
-          gh release upload "$TAG" "/tmp/release/Trade.Journal_${VERSION}_x64_en-US.msi" --clobber
+          gh release upload "$TAG" "$OUTDIR/Trade.Journal_${VERSION}_x64-setup.exe" --clobber
+          gh release upload "$TAG" "$OUTDIR/Trade.Journal_${VERSION}_x64_en-US.msi" --clobber
           gh release upload "$TAG" "$NSIS_ZIP" --clobber
 
       - name: Save Windows sig artifact
@@ -147,7 +151,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-sig
-          path: /tmp/release/windows.nsis.zip.sig
+          path: ${{ runner.temp }}/release/windows.nsis.zip.sig
 
   # ── Finalize: generate combined latest.json after both platforms complete ────
 
