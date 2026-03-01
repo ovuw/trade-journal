@@ -30,6 +30,8 @@ create table if not exists trades (
   result_pct    numeric,
   screenshot_id text,
   session       text,
+  exit_lots     jsonb,
+  remaining_qty int,
   created_at    text not null,
   updated_at    text not null
 );
