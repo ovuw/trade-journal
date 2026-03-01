@@ -49,6 +49,26 @@ Without the filter, Lot rows are treated as buy transactions. FIFO matching accu
 
 ---
 
+## Node.js 25.x — Built-in localStorage Breaks Vitest
+
+### Rule:
+When running Vitest on Node.js 25+, add `NODE_OPTIONS=--no-experimental-webstorage` to the test script in package.json. Also configure `test: { environment: 'happy-dom', setupFiles: ['./src/__tests__/setup.ts'] }` in vite.config.ts.
+
+### Why:
+Node.js 25 exposes a built-in `localStorage` global (from `node:internal/webstorage`) that is read-only without the `--localstorage-file` CLI flag. It overrides happy-dom's localStorage because it's defined on `globalThis` before happy-dom can set it. `getItem` returns null (appears to work) but `setItem` throws `TypeError: not a function` — 8 db.test.ts tests silently fail. The `--no-experimental-webstorage` flag removes Node's built-in entirely, letting happy-dom provide the proper writable implementation.
+
+---
+
+## keyring Crate on macOS — Silent Failure in Unsigned Dev Builds
+
+### Rule:
+Do not use the `keyring` crate for credential storage in Tauri apps. Use file-based storage in the Tauri app data directory instead (`app.path().app_data_dir()`), with `chmod 600` on macOS/Linux.
+
+### Why:
+The `keyring` crate v3 on macOS silently "succeeds" (`set_password` returns `Ok(())`) but writes nothing to the keychain when the binary is unsigned (as in `tauri dev`). `get_password` then returns `NoEntry`. The `security find-generic-password` CLI tool confirms nothing was written. Root cause: the crate likely uses `kSecUseDataProtectionKeychain = true` which requires a signed binary with `keychain-access-groups` entitlement. The file-based approach using Tauri's app data dir works immediately, is cross-platform (macOS + Windows), and is still far more secure than localStorage — the file is in `~/Library/Application Support/<bundle-id>/` with user-only permissions, invisible to browser devtools.
+
+---
+
 ## localStorage Data Integrity
 
 ### Mistake:

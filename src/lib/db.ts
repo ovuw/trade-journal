@@ -3,6 +3,7 @@
  * Supabase sync will be layered on top in Phase 11.
  */
 import { Trade, Rule, ChecklistItem, JournalEntry, Tag, DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS, DEFAULT_SETUP_TAGS, DEFAULT_MISTAKE_TAGS } from '../types'
+import { getCredential, setCredential, deleteCredential } from './credentials'
 
 const TRADES_KEY = 'tj_trades'
 
@@ -324,34 +325,30 @@ export function saveAccountSettings(s: AccountSettings): void {
 }
 
 // ── Supabase runtime config ─────────────────────────────────────────────────────
-const SUPABASE_CONFIG_KEY = 'tj_supabase_config'
-
 export interface SupabaseConfig { url: string; anonKey: string }
 
 export function getSupabaseConfig(): SupabaseConfig | null {
   try {
-    const s = localStorage.getItem(SUPABASE_CONFIG_KEY)
+    const s = getCredential('supabase_config')
     return s ? JSON.parse(s) as SupabaseConfig : null
   } catch {
     return null
   }
 }
 
-export function saveSupabaseConfig(config: SupabaseConfig | null): void {
-  if (config) localStorage.setItem(SUPABASE_CONFIG_KEY, JSON.stringify(config))
-  else localStorage.removeItem(SUPABASE_CONFIG_KEY)
+export async function saveSupabaseConfig(config: SupabaseConfig | null): Promise<void> {
+  if (config) await setCredential('supabase_config', JSON.stringify(config))
+  else await deleteCredential('supabase_config')
 }
 
 // ── Anthropic API key ──────────────────────────────────────────────────────────
-const ANTHROPIC_KEY = 'tj_anthropic_key'
-
 export function getAnthropicKey(): string {
-  return localStorage.getItem(ANTHROPIC_KEY) ?? ''
+  return getCredential('anthropic_key') ?? ''
 }
 
-export function saveAnthropicKey(key: string): void {
-  if (key) localStorage.setItem(ANTHROPIC_KEY, key)
-  else localStorage.removeItem(ANTHROPIC_KEY)
+export async function saveAnthropicKey(key: string): Promise<void> {
+  if (key) await setCredential('anthropic_key', key)
+  else await deleteCredential('anthropic_key')
 }
 
 // ── Pre-market reminder settings ───────────────────────────────────────────────
@@ -515,8 +512,6 @@ export function saveNoteTemplate(template: string): void {
 }
 
 // ── IBKR Flex Query config ─────────────────────────────────────────────────────
-const IBKR_CONFIG_KEY = 'tj_ibkr_config'
-
 export interface IbkrConfig {
   flexToken: string
   queryId: string
@@ -525,16 +520,16 @@ export interface IbkrConfig {
 
 export function getIbkrConfig(): IbkrConfig | null {
   try {
-    const s = localStorage.getItem(IBKR_CONFIG_KEY)
+    const s = getCredential('ibkr_config')
     return s ? JSON.parse(s) as IbkrConfig : null
   } catch {
     return null
   }
 }
 
-export function saveIbkrConfig(config: IbkrConfig | null): void {
-  if (config) localStorage.setItem(IBKR_CONFIG_KEY, JSON.stringify(config))
-  else localStorage.removeItem(IBKR_CONFIG_KEY)
+export async function saveIbkrConfig(config: IbkrConfig | null): Promise<void> {
+  if (config) await setCredential('ibkr_config', JSON.stringify(config))
+  else await deleteCredential('ibkr_config')
 }
 
 // ── AI Analyses (save last 10) ─────────────────────────────────────────────────

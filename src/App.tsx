@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -9,7 +9,8 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import UpdaterDialog from "./components/UpdaterDialog";
 import { ToastProvider } from "./components/Toast";
 import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal";
-import { runMigrations } from "./lib/db";
+import { runMigrations } from "./lib/db"
+import { loadCredentials } from "./lib/credentials";
 
 const Dashboard   = lazy(() => import('./pages/Dashboard'))
 const NewTrade    = lazy(() => import('./pages/NewTrade'))
@@ -32,11 +33,26 @@ function PageLoader() {
 }
 
 function App() {
+  const [credentialsLoaded, setCredentialsLoaded] = useState(false)
+
+  useEffect(() => {
+    loadCredentials().then(() => setCredentialsLoaded(true))
+  }, [])
+
   runMigrations()
   useAutoSync();
   useIbkrSync();
   usePreMarketReminder();
   useKeyboardShortcuts();
+
+  if (!credentialsLoaded) {
+    return (
+      <ToastProvider>
+        <PageLoader />
+      </ToastProvider>
+    )
+  }
+
   return (
     <ToastProvider>
       <UpdaterDialog />

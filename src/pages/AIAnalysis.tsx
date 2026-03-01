@@ -76,13 +76,13 @@ export default function AIAnalysis() {
     }
   }, [output])
 
-  function handleSaveKey() {
+  async function handleSaveKey() {
     const trimmed = keyInput.trim()
     if (!trimmed.startsWith('sk-')) {
       setError('Key should start with sk-')
       return
     }
-    saveAnthropicKey(trimmed)
+    await saveAnthropicKey(trimmed)
     setApiKey(trimmed)
     setKeyInput('')
     setError('')
@@ -264,7 +264,7 @@ export default function AIAnalysis() {
           <div className="flex items-center gap-2 flex-shrink-0">
             <span className="text-xs text-text-muted">API key configured</span>
             <button
-              onClick={() => { saveAnthropicKey(''); setApiKey(''); setOutput(''); setStatus('idle') }}
+              onClick={() => { void saveAnthropicKey(''); setApiKey(''); setOutput(''); setStatus('idle') }}
               className="text-xs text-text-muted hover:text-loss transition-colors"
             >
               Remove

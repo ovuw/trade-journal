@@ -315,10 +315,10 @@ export default function Settings() {
 
   // ── Supabase config handlers ─────────────────────────────────────────────────
 
-  function handleSaveSupabase() {
+  async function handleSaveSupabase() {
     const { url, anonKey } = supabaseForm
     if (!url || !anonKey) return
-    saveSupabaseConfig({ url, anonKey })
+    await saveSupabaseConfig({ url, anonKey })
     resetSupabaseClient()
     setConfiguredState(true)
     setSupabaseSaved(true)
@@ -332,8 +332,8 @@ export default function Settings() {
     setTimeout(() => setTestStatus('idle'), 4000)
   }
 
-  function handleDisconnect() {
-    saveSupabaseConfig(null)
+  async function handleDisconnect() {
+    await saveSupabaseConfig(null)
     resetSupabaseClient()
     setConfiguredState(false)
     setSession(null)
@@ -383,8 +383,8 @@ export default function Settings() {
 
   // ── IBKR handlers ────────────────────────────────────────────────────────────
 
-  function handleSaveIbkr() {
-    saveIbkrConfig(ibkrForm.flexToken || ibkrForm.queryId ? ibkrForm : null)
+  async function handleSaveIbkr() {
+    await saveIbkrConfig(ibkrForm.flexToken || ibkrForm.queryId ? ibkrForm : null)
     setIbkrSaved(true)
     setTimeout(() => setIbkrSaved(false), 2000)
   }
