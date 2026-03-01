@@ -186,6 +186,15 @@ function exportBackup() {
   triggerDownload(JSON.stringify(backup, null, 2), `trade-journal-backup-${date}.json`, 'application/json')
 }
 
+async function openIssueTracker(): Promise<void> {
+  try {
+    const { openUrl } = await import('@tauri-apps/plugin-opener')
+    await openUrl('https://github.com/ovuw/trade-journal/issues')
+  } catch {
+    window.open('https://github.com/ovuw/trade-journal/issues', '_blank', 'noopener,noreferrer')
+  }
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -1092,16 +1101,9 @@ export default function Settings() {
       </Section>
 
       {/* ── Support ── */}
-      <div className="flex items-center justify-center gap-4 pb-2 text-xs text-text-muted">
+      <div className="flex items-center justify-center pb-2 text-xs text-text-muted">
         <button
-          onClick={async () => {
-            try {
-              const { openUrl } = await import('@tauri-apps/plugin-opener')
-              await openUrl('https://github.com/ovuw/trade-journal/issues')
-            } catch {
-              window.open('https://github.com/ovuw/trade-journal/issues', '_blank', 'noopener,noreferrer')
-            }
-          }}
+          onClick={openIssueTracker}
           className="flex items-center gap-1 hover:text-text-primary transition-colors"
         >
           <ExternalLink size={11} />

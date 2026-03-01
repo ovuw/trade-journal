@@ -15,7 +15,7 @@ import {
   type Direction,
   type AssetClass,
 } from '../types'
-import { detectSession, nowLocal, calcPartialPnl, calcResultPct, calcWeightedAvgExit } from '../lib/tradeUtils'
+import { detectSession, nowLocal, calcPartialPnl, calcResultPct, calcWeightedAvgExit, calcRealizedQty } from '../lib/tradeUtils'
 import type { ExitLot } from '../types'
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
@@ -80,6 +80,14 @@ function Label({ children, required, htmlFor }: { children: React.ReactNode; req
   )
 }
 
+/** Returns aria-invalid + aria-describedby props when an error message is present. */
+function ariaFor(errorMsg: string | undefined, id: string) {
+  return {
+    'aria-invalid': errorMsg ? (true as const) : undefined,
+    'aria-describedby': errorMsg ? id : undefined,
+  }
+}
+
 function PriceInput({
   label,
   value,
@@ -114,7 +122,7 @@ function PriceInput({
           placeholder={placeholder ?? '0.00'}
           className={`input pl-6 font-mono text-sm${hasError ? ' border-loss' : ''}`}
           required={required}
-          aria-invalid={hasError || undefined}
+          aria-invalid={hasError ? true : undefined}
           aria-describedby={errorId && hasError ? errorId : undefined}
         />
       </div>
@@ -464,8 +472,7 @@ export default function NewTrade() {
                     placeholder="AAPL"
                     className={`input font-mono font-semibold text-base tracking-widest uppercase ${errors.ticker ? 'border-loss' : ''}`}
                     maxLength={10}
-                    aria-invalid={errors.ticker ? true : undefined}
-                    aria-describedby={errors.ticker ? 'nt-ticker-err' : undefined}
+                    {...ariaFor(errors.ticker, 'nt-ticker-err')}
                   />
                   {errors.ticker && <p id="nt-ticker-err" className="text-xs text-loss mt-1">{errors.ticker}</p>}
                 </div>
@@ -523,8 +530,7 @@ export default function NewTrade() {
                     value={form.entry_time}
                     onChange={e => update('entry_time', e.target.value)}
                     className={`input text-sm ${errors.entry_time ? 'border-loss' : ''}`}
-                    aria-invalid={errors.entry_time ? true : undefined}
-                    aria-describedby={errors.entry_time ? 'nt-entry-time-err' : undefined}
+                    {...ariaFor(errors.entry_time, 'nt-entry-time-err')}
                   />
                   {errors.entry_time && <p id="nt-entry-time-err" className="text-xs text-loss mt-1">{errors.entry_time}</p>}
                 </div>
@@ -645,8 +651,7 @@ export default function NewTrade() {
                     onChange={e => update('quantity', e.target.value)}
                     placeholder="100"
                     className={`input font-mono text-sm ${errors.quantity ? 'border-loss' : ''}`}
-                    aria-invalid={errors.quantity ? true : undefined}
-                    aria-describedby={errors.quantity ? 'nt-quantity-err' : undefined}
+                    {...ariaFor(errors.quantity, 'nt-quantity-err')}
                   />
                   {errors.quantity && <p id="nt-quantity-err" className="text-xs text-loss mt-1">{errors.quantity}</p>}
                 </div>
@@ -676,7 +681,7 @@ export default function NewTrade() {
                     const qty = parseFloat(form.quantity)
                     const fees = parseFloat(form.fees) || 0
                     const lots = filledExitLots.map(l => ({ qty: parseFloat(l.qty), price: parseFloat(l.price) }))
-                    const totalExitQty = lots.reduce((s, l) => s + l.qty, 0)
+                    const totalExitQty = calcRealizedQty(lots)
                     const pnl = calcPartialPnl(form.direction, entry, lots, fees, qty)
                     const pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
                     const isProfit = pnl >= 0

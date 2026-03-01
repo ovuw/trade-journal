@@ -32,13 +32,17 @@ function PageLoader() {
   )
 }
 
+// Guard against Tauri IPC hang: if loadCredentials() never resolves, unblock after this long
+const CREDENTIALS_LOAD_TIMEOUT_MS = 5000
+
 function App() {
   const [credentialsLoaded, setCredentialsLoaded] = useState(false)
 
   useEffect(() => {
-    // 5s timeout guards against Tauri IPC hang on credentials load
-    const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000))
+    let timerId: ReturnType<typeof setTimeout>
+    const timeout = new Promise<void>(resolve => { timerId = setTimeout(resolve, CREDENTIALS_LOAD_TIMEOUT_MS) })
     Promise.race([loadCredentials(), timeout]).then(() => setCredentialsLoaded(true))
+    return () => clearTimeout(timerId)
   }, [])
 
   useEffect(() => {
@@ -49,7 +53,7 @@ function App() {
     return () => window.removeEventListener('unhandledrejection', handler)
   }, [])
 
-  runMigrations()
+  useEffect(() => { runMigrations() }, [])
   useAutoSync();
   useIbkrSync();
   usePreMarketReminder();
