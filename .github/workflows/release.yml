@@ -19,15 +19,15 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           CLEAN_VERSION="${TAG#v}"
-          python3 -c "
-import re, sys
-with open('CHANGELOG.md') as f:
-    content = f.read()
-version = '${CLEAN_VERSION}'
-m = re.search(r'## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
-notes = m.group(1).strip() if m else 'Bug fixes and improvements.'
-print(notes)
-" > /tmp/release_notes.txt
+          CHANGELOG_VERSION="$CLEAN_VERSION" python3 << 'PYEOF' > /tmp/release_notes.txt
+          import re, os
+          version = os.environ['CHANGELOG_VERSION']
+          with open('CHANGELOG.md') as f:
+              content = f.read()
+          m = re.search(r'## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
+          notes = m.group(1).strip() if m else 'Bug fixes and improvements.'
+          print(notes, end='')
+          PYEOF
           gh release view "$TAG" 2>/dev/null || \
           gh release create "$TAG" \
             --title "Trade Journal $TAG" \
