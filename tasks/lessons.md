@@ -39,6 +39,16 @@ TypeScript surfaces the errors at compile time regardless, but discovering 5 ext
 
 ---
 
+## IBKR CSV — DataDiscriminator Rows
+
+### Rule:
+IBKR Activity Statement CSV includes `DataDiscriminator=Lot` rows after every closing `Order` row. These re-state the original opening fill (positive qty, open price) for tax/cost-basis purposes. Always skip rows where `datadiscriminator` is `'lot'`, `'subtotal'`, or `'total'` in the IBKR parser.
+
+### Why:
+Without the filter, Lot rows are treated as buy transactions. FIFO matching accumulates extra buys that prevent `posQty` from reaching 0, so every trade is saved as an open position instead of closed.
+
+---
+
 ## localStorage Data Integrity
 
 ### Mistake:

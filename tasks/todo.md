@@ -8,7 +8,7 @@
 
 ## Current State
 - **Version:** 0.4.0 (released 2026-02-28) — next release will be v0.5.0
-- **Status:** All features complete. Pushed to main but not yet tagged v0.5.0.
+- **Status:** All v0.5.0 features complete + code reviewed + pushed to main. Ready to tag.
 - Stack: Tauri + React + TypeScript + localStorage (primary) + Supabase (optional sync)
 - Auto-updater live via GitHub Releases — triggers on `v*` tags
 - GitHub repo is **public** (required for unauthenticated asset downloads / auto-updater)
@@ -21,7 +21,7 @@
 - Trade sync logic (incl. exported `mergeTrades`): `src/lib/sync.ts`
 - Screenshot storage: `src/lib/storage.ts`
 - Image compression util: `src/lib/imageUtils.ts`
-- Unit tests: `src/__tests__/` — 86 tests, all passing
+- Unit tests: `src/__tests__/` — 110 tests, all passing
 
 ## Design System
 - Tailwind tokens only — never hardcode hex
@@ -38,6 +38,27 @@
 ## Tsc Rule
 Always run `npx tsc --noEmit` after every TypeScript change. Zero errors required before marking anything done.
 Also run `npm test` — 86 tests must pass.
+
+## Completed This Session (2026-03-01)
+
+### Partial Exit Support
+- `ExitLot` interface (`{qty, price, time}`) added to `src/types/index.ts`
+- `calcPartialPnl`, `calcRealizedQty`, `calcWeightedAvgExit` added to `src/lib/tradeUtils.ts`
+- Schema v2 migration in `db.ts` backfills `exit_lots` and `remaining_qty` on all existing trades
+- **NewTrade**: exit price field replaced with dynamic multi-row exit lots. Single smart button; P/L preview aggregates across lots. "Add exit lot" pill button (visible, outlined).
+- **TradeLog**: ExpandedRow shows per-lot breakdown. Inline close form accepts qty + exit price. PARTIAL badge (amber) for partial-exit trades.
+- **IBKR Flex sync** (`src/lib/ibkr.ts`): grouped lots by `symbol::openDateTime` → one trade per entry with `exit_lots[]` instead of one trade per lot. Backward-compatible dedup via synthetic txId.
+
+### IBKR CSV Import Fix
+- Root cause: IBKR Activity Statement CSV includes `DataDiscriminator=Lot` rows after each closing `Order` row. These re-state the original buy fill (positive qty, open price) for tax purposes. Parser was treating them as real buy transactions → positions never closed → all trades imported as OPEN.
+- Fix: skip rows where `datadiscriminator` is `'lot'`, `'subtotal'`, or `'total'` in `parseIBKR()`. Safe for old IBKR formats (no DataDiscriminator column → empty string → no rows skipped).
+- 8 new tests in `src/__tests__/csvImport.test.ts` including the key regression.
+
+### Sync Bug Fix
+- `exit_lots` and `remaining_qty` are stripped from Supabase upsert payload (schema doesn't have these columns yet). Prevents silent push failures that would have broken sync for all new trades.
+
+### Code Review
+- 110 tests pass, tsc --noEmit clean, all changes pushed to main.
 
 ## Completed This Session (2026-02-28)
 
