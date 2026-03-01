@@ -19,7 +19,7 @@ import {
   signIn as supabaseSignIn, signOut as supabaseSignOut,
   resetSupabaseClient,
 } from '../lib/supabase'
-import { syncTrades } from '../lib/sync'
+import { syncTrades, deleteAllSyncedTrades } from '../lib/sync'
 import type { Trade } from '../types'
 import { DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS } from '../types'
 
@@ -428,13 +428,18 @@ export default function Settings() {
 
   // ── Clear data ────────────────────────────────────────────────────────────────
 
-  function handleClearTrades() {
+  async function handleClearTrades() {
     const keys: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)
       if (k === 'tj_trades' || k?.startsWith('tj_screenshot_')) keys.push(k)
     }
     keys.forEach(k => localStorage.removeItem(k))
+    // Also remove from Supabase so sync doesn't restore them
+    const session = await getSession()
+    if (session?.user?.id) {
+      await deleteAllSyncedTrades(session.user.id)
+    }
     window.location.replace('/')
   }
 

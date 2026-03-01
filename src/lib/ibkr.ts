@@ -10,8 +10,8 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import { getTrades, saveTrade, updateTrade } from './db'
-import { calcPnl, calcResultPct, detectSession } from './tradeUtils'
-import type { Trade } from '../types'
+import { calcPartialPnl, calcResultPct, calcWeightedAvgExit, detectSession } from './tradeUtils'
+import type { Trade, ExitLot } from '../types'
 
 const SEND_URL = 'https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest'
 const GET_URL = 'https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement'
@@ -89,6 +89,20 @@ export function parseLots(xml: string): ParsedLot[] {
   }))
 }
 
+// ── Group lots by entry (symbol + openDateTime) ───────────────────────────────
+
+/** Group lots by their common entry (same symbol + openDateTime = same position entry). */
+export function groupLotsByEntry(lots: ParsedLot[]): Map<string, ParsedLot[]> {
+  const grouped = new Map<string, ParsedLot[]>()
+  for (const lot of lots) {
+    const key = `${lot.symbol}::${lot.openDateTime}`
+    const arr = grouped.get(key) ?? []
+    arr.push(lot)
+    grouped.set(key, arr)
+  }
+  return grouped
+}
+
 // ── Main sync function ────────────────────────────────────────────────────────
 
 export interface IbkrSyncResult {
@@ -109,7 +123,7 @@ export async function syncIbkr(flexToken: string, queryId: string): Promise<Ibkr
   const lots = parseLots(statementXml)
   const existingTrades = getTrades()
 
-  // Build a lookup map: ibkr_transaction_id → trade
+  // Build lookup: ibkr_transaction_id → trade (handles both old single-lot and new grouped keys)
   const txIdMap = new Map<string, Trade>(
     existingTrades
       .filter(t => t.ibkr_transaction_id)
@@ -120,38 +134,66 @@ export async function syncIbkr(flexToken: string, queryId: string): Promise<Ibkr
   let updated = 0
   let skipped = 0
 
-  for (const lot of lots) {
-    if (!lot.symbol || !lot.transactionID) { skipped++; continue }
+  const grouped = groupLotsByEntry(lots)
 
-    // buySell refers to the CLOSING transaction: SELL = closed a long, BUY = covered a short
-    const direction: Trade['direction'] = lot.buySell === 'BUY' ? 'short' : 'long'
-    const entry = lot.costBasisPrice
-    const exit = lot.tradePrice
-    const qty = lot.quantity
-    const fees = lot.ibCommission
-    const pnl = calcPnl(direction, entry, exit, qty, fees)
-    const result_pct = calcResultPct(pnl, entry, qty)
-    const entryTime = parseDateTime(lot.openDateTime)
-    const exitTime = parseDateTime(lot.closeDateTime)
+  for (const [groupKey, groupLots] of grouped) {
+    if (!groupLots[0].symbol) { skipped += groupLots.length; continue }
 
-    const existing = txIdMap.get(lot.transactionID)
+    const firstLot = groupLots[0]
+    const direction: Trade['direction'] = firstLot.buySell === 'BUY' ? 'short' : 'long'
+    const entry = firstLot.costBasisPrice
+    const totalQty = groupLots.reduce((s, l) => s + l.quantity, 0)
+    const totalFees = groupLots.reduce((s, l) => s + l.ibCommission, 0)
+    const entryTime = parseDateTime(firstLot.openDateTime)
+
+    const exit_lots: ExitLot[] = groupLots.map(l => ({
+      qty: l.quantity,
+      price: l.tradePrice,
+      time: parseDateTime(l.closeDateTime),
+    }))
+
+    const pnl = calcPartialPnl(direction, entry, exit_lots, totalFees)
+    const result_pct = calcResultPct(pnl, entry, totalQty)
+    const avgExit = calcWeightedAvgExit(exit_lots) ?? firstLot.tradePrice
+
+    // Synthetic group key used for re-sync dedup
+    const syntheticTxId = `IBKR::${groupKey}`
+
+    // Check if any lot in this group matches an existing trade (handles pre-grouping imports)
+    const existingFromGroupKey = txIdMap.get(syntheticTxId)
+    const existingFromIndividualTx = groupLots
+      .map(l => txIdMap.get(l.transactionID))
+      .find(t => t !== undefined)
+    const existing = existingFromGroupKey ?? existingFromIndividualTx
+
     if (existing) {
-      // Already imported — update price data only, never overwrite notes/tags/rules
-      updateTrade(existing.id, { entry_price: entry, exit_price: exit, quantity: qty, fees, pnl, result_pct, entry_time: entryTime, exit_time: exitTime })
+      updateTrade(existing.id, {
+        entry_price: entry,
+        exit_price: avgExit,
+        quantity: totalQty,
+        fees: totalFees,
+        pnl,
+        result_pct,
+        entry_time: entryTime,
+        exit_time: exit_lots[exit_lots.length - 1]?.time ?? entryTime,
+        exit_lots,
+        remaining_qty: 0,
+        ibkr_transaction_id: syntheticTxId,
+      })
       updated++
     } else {
       saveTrade({
-        ticker: lot.symbol.toUpperCase(),
+        ticker: firstLot.symbol.toUpperCase(),
         direction,
-        asset_class: parseAssetClass(lot.assetCategory),
+        asset_class: parseAssetClass(firstLot.assetCategory),
         entry_price: entry,
-        exit_price: exit,
+        exit_price: avgExit,
         stop_price: null,
         target_price: null,
-        quantity: qty,
-        fees,
+        quantity: totalQty,
+        fees: totalFees,
         entry_time: entryTime,
-        exit_time: exitTime,
+        exit_time: exit_lots[exit_lots.length - 1]?.time ?? entryTime,
         pnl,
         result_pct,
         session: detectSession(entryTime),
@@ -166,7 +208,9 @@ export async function syncIbkr(flexToken: string, queryId: string): Promise<Ibkr
         planned_rr: null,
         actual_r: null,
         screenshot_id: null,
-        ibkr_transaction_id: lot.transactionID,
+        ibkr_transaction_id: syntheticTxId,
+        exit_lots,
+        remaining_qty: 0,
       })
       imported++
     }

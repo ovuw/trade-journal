@@ -1,4 +1,4 @@
-import { Direction, AssetClass } from '../types'
+import { Direction, AssetClass, type ExitLot } from '../types'
 import { getSetupTags } from './db'
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -8,17 +8,28 @@ export interface ParsedTrade {
   direction: Direction
   asset_class: AssetClass
   entry_price: number
-  exit_price: number
+  exit_price: number | null   // null = position still open at end of file period
   quantity: number
   fees: number
   entry_time: string
-  exit_time: string
+  exit_time: string | null    // null = position still open at end of file period
   notes: string
   setup_tag_id: string
   stop_price: number | null
   target_price: number | null
+  exit_lots?: ExitLot[]
   _rowNum: number
   _errors: string[]
+}
+
+/** A sell transaction with no matching buy in this file — entry is in a prior import. */
+export interface OrphanedSell {
+  ticker: string
+  datetime: string   // ISO
+  price: number
+  qty: number
+  fees: number
+  asset_class: AssetClass
 }
 
 export interface ImportResult {
@@ -26,6 +37,7 @@ export interface ImportResult {
   skipped: number
   errors: string[]
   detectedFormat: string
+  orphanedSells: OrphanedSell[]
 }
 
 // ─── Internal transaction type ────────────────────────────────────────────────
@@ -270,6 +282,14 @@ function parseIBKR(lines: string[]): { txs: BrokerTx[]; errors: string[] } {
         return idx >= 0 ? (row[idx] ?? '') : ''
       }
 
+      // Skip cost-basis lot rows, subtotals, and totals.
+      // IBKR Activity Statement includes DataDiscriminator rows:
+      //   Order = actual trade execution (what we want)
+      //   Lot   = cost-basis lot info for the closing trade (NOT a real transaction)
+      //   SubTotal / Total = aggregate rows
+      const disc = get('datadiscriminator').toLowerCase()
+      if (disc === 'lot' || disc === 'subtotal' || disc === 'total') continue
+
       const assetCategory = get('asset category').toLowerCase()
       if (!assetCategory.includes('stock') && !assetCategory.includes('equit')) continue
 
@@ -315,6 +335,9 @@ function buildTrade(
   const avgExit = exitTxs.reduce((s, t) => s + t.price * t.qty, 0) / totalExitQty
   const totalFees = [...entryTxs, ...exitTxs].reduce((s, t) => s + t.fees, 0)
 
+  // Build per-lot exit details (preserves individual fill prices/times)
+  const exit_lots: ExitLot[] = exitTxs.map(tx => ({ qty: tx.qty, price: tx.price, time: tx.datetime }))
+
   return {
     ticker,
     direction,
@@ -329,12 +352,36 @@ function buildTrade(
     setup_tag_id: '',
     stop_price: null,
     target_price: null,
+    exit_lots,
     _rowNum: 0,
     _errors: [],
   }
 }
 
-function groupIntoTrades(txs: BrokerTx[]): { trades: ParsedTrade[]; errors: string[] } {
+function buildOpenTrade(ticker: string, entryTxs: BrokerTx[]): ParsedTrade {
+  const totalQty = entryTxs.reduce((s, t) => s + t.qty, 0)
+  const avgEntry = entryTxs.reduce((s, t) => s + t.price * t.qty, 0) / totalQty
+  const totalFees = entryTxs.reduce((s, t) => s + t.fees, 0)
+  return {
+    ticker,
+    direction: 'long',
+    asset_class: entryTxs[0].asset_class,
+    entry_price: Math.round(avgEntry * 10000) / 10000,
+    exit_price: null,
+    quantity: totalQty,
+    fees: Math.round(totalFees * 100) / 100,
+    entry_time: entryTxs[0].datetime,
+    exit_time: null,
+    notes: '',
+    setup_tag_id: '',
+    stop_price: null,
+    target_price: null,
+    _rowNum: 0,
+    _errors: [],
+  }
+}
+
+function groupIntoTrades(txs: BrokerTx[]): { trades: ParsedTrade[]; orphanedSells: OrphanedSell[]; errors: string[] } {
   txs.sort((a, b) => a.datetime.localeCompare(b.datetime))
 
   const byTicker = new Map<string, BrokerTx[]>()
@@ -345,6 +392,7 @@ function groupIntoTrades(txs: BrokerTx[]): { trades: ParsedTrade[]; errors: stri
   }
 
   const trades: ParsedTrade[] = []
+  const orphanedSells: OrphanedSell[] = []
   const errors: string[] = []
 
   for (const [ticker, tickerTxs] of byTicker) {
@@ -355,6 +403,11 @@ function groupIntoTrades(txs: BrokerTx[]): { trades: ParsedTrade[]; errors: stri
 
     for (const tx of tickerTxs) {
       if (posQty === 0) {
+        if (tx.action === 'sell') {
+          // Orphaned sell — entry is in a prior file; collect for cross-file matching
+          orphanedSells.push({ ticker, datetime: tx.datetime, price: tx.price, qty: tx.qty, fees: tx.fees, asset_class: tx.asset_class })
+          continue
+        }
         posDir = tx.action === 'buy' ? 'long' : 'short'
         entryTxs = [tx]
         exitTxs = []
@@ -409,12 +462,13 @@ function groupIntoTrades(txs: BrokerTx[]): { trades: ParsedTrade[]; errors: stri
     }
 
     if (posQty > 0) {
-      errors.push(`${ticker}: ${posQty} shares still open (no matching exit) — skipped`)
+      // Position not closed in this file — save as open position for cross-file matching
+      trades.push(buildOpenTrade(ticker, entryTxs))
     }
   }
 
   trades.sort((a, b) => b.entry_time.localeCompare(a.entry_time))
-  return { trades, errors }
+  return { trades, orphanedSells, errors }
 }
 
 // ─── Generic TJ format parser ─────────────────────────────────────────────────
@@ -471,7 +525,7 @@ export function parseCsv(text: string): ImportResult {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
   if (lines.length < 2) {
-    return { trades: [], skipped: 0, errors: ['File has no data rows'], detectedFormat: 'Unknown' }
+    return { trades: [], skipped: 0, errors: ['File has no data rows'], detectedFormat: 'Unknown', orphanedSells: [] }
   }
 
   const format = detectFormat(lines[0], lines)
@@ -492,12 +546,14 @@ export function parseCsv(text: string): ImportResult {
         skipped: 0,
         errors: [`No equity transactions found in ${formatName} export.`, ...parseErrors],
         detectedFormat: formatName,
+        orphanedSells: [],
       }
     }
 
-    const { trades, errors: groupErrors } = groupIntoTrades(txs)
+    const { trades, orphanedSells, errors: groupErrors } = groupIntoTrades(txs)
     return {
       trades,
+      orphanedSells,
       skipped: groupErrors.length,
       errors: [...parseErrors, ...groupErrors],
       detectedFormat: formatName,
@@ -525,7 +581,7 @@ export function parseCsv(text: string): ImportResult {
       }
     }
 
-    return { trades, skipped, errors, detectedFormat: 'Trade Journal' }
+    return { trades, skipped, errors, detectedFormat: 'Trade Journal', orphanedSells: [] }
   }
 
   // ── Unknown ─────────────────────────────────────────────────────────────────
@@ -534,5 +590,6 @@ export function parseCsv(text: string): ImportResult {
     skipped: 0,
     errors: ['Unrecognized format. Supported: Tastytrade, TD Ameritrade, IBKR, or Trade Journal template.'],
     detectedFormat: 'Unknown',
+    orphanedSells: [],
   }
 }

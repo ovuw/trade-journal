@@ -126,7 +126,7 @@ const SCENARIOS: Scenario[] = [
   {
     id: 'best-setup-only',
     label: 'Best Setup Only',
-    description: 'What if you only traded your highest-EV setup (min 3 trades required)? Shows focus benefit.',
+    description: 'What if you only traded your highest-EV setup (min 3 trades required)? May improve or reduce P/L depending on your data.',
     simulate: tradeOnlyBestSetup,
   },
 ]

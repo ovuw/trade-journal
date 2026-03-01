@@ -21,7 +21,7 @@ export function getTrades(): Trade[] {
 }
 
 // ── Schema migrations ──────────────────────────────────────────────────────────
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 export function runMigrations(): void {
   const current = parseInt(localStorage.getItem('tj_schema_version') ?? '0', 10)
@@ -34,6 +34,26 @@ export function runMigrations(): void {
       mistake_tag_ids: (t.mistake_tag_ids as string[] | undefined) ?? [],
       rules_broken_ids: (t.rules_broken_ids as string[] | undefined) ?? [],
     }))
+    localStorage.setItem(TRADES_KEY, JSON.stringify(migrated))
+    _tradesCache = null
+  }
+  if (current < 2) {
+    // Backfill exit_lots and remaining_qty on all existing trades
+    const raw = JSON.parse(localStorage.getItem(TRADES_KEY) || '[]') as Record<string, unknown>[]
+    const migrated = raw.map(t => {
+      if (Array.isArray(t.exit_lots)) return t  // already migrated
+      const qty = (t.quantity as number) ?? 0
+      const exitPrice = t.exit_price as number | null
+      const exitTime = t.exit_time as string | null
+      const exit_lots = exitPrice != null
+        ? [{ qty, price: exitPrice, time: exitTime ?? (t.entry_time as string) ?? '' }]
+        : []
+      return {
+        ...t,
+        exit_lots,
+        remaining_qty: exitPrice != null ? 0 : qty,
+      }
+    })
     localStorage.setItem(TRADES_KEY, JSON.stringify(migrated))
     _tradesCache = null
   }

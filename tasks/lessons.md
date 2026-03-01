@@ -26,6 +26,19 @@ BrowserRouter routes are virtual — Tauri can't serve `/settings` as a real fil
 
 ---
 
+## Nullable Type Cascade — Audit All Files First
+
+### Mistake:
+When making Trade fields nullable (`pnl`, `exit_price`, etc.), the plan only identified the obvious pages. The cascade actually hit aiAnalysis.ts, csvExport.ts, Journal.tsx, Settings.tsx, and Simulator.tsx — none of which were in the plan.
+
+### Rule:
+Before making any field nullable, grep every file in the project for that field name. Identify all consumers upfront and include them in the plan. `tsc --noEmit` will catch them all at the end, but surprises mid-implementation slow things down.
+
+### Why:
+TypeScript surfaces the errors at compile time regardless, but discovering 5 extra files mid-task breaks flow and risks making rushed fixes. A 30-second grep before starting saves 30 minutes of cleanup.
+
+---
+
 ## localStorage Data Integrity
 
 ### Mistake:

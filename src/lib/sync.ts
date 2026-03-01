@@ -67,6 +67,13 @@ export async function deleteSyncedTrade(tradeId: string): Promise<void> {
   await client.from('trades').delete().eq('id', tradeId)
 }
 
+/** Delete all trades for a user from Supabase. No-op if not configured. */
+export async function deleteAllSyncedTrades(userId: string): Promise<void> {
+  const client = getSupabaseClient()
+  if (!client) return
+  await client.from('trades').delete().eq('user_id', userId)
+}
+
 /**
  * Full bidirectional sync for all trades.
  * - Pulls all remote trades for the user
@@ -94,9 +101,12 @@ export async function syncTrades(userId: string): Promise<{ pulled: number; push
   // Batch push local-only trades
   let pushed = 0
   if (toPush.length > 0) {
+    // Strip locally-computed fields that aren't in the Supabase schema yet.
+    // exit_lots and remaining_qty live in localStorage only until a schema migration is run.
     const { error: pushErr } = await client
       .from('trades')
-      .upsert(toPush.map(t => ({ ...t, user_id: userId })))
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      .upsert(toPush.map(({ exit_lots, remaining_qty, ...t }) => ({ ...t, user_id: userId })))
     if (!pushErr) pushed = toPush.length
   }
 

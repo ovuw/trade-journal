@@ -60,7 +60,10 @@ export function buildPrompt(trades: Trade[], rules: Rule[]): string {
       const date = t.entry_time.slice(0, 10)
       const rBroken = t.rules_broken_ids.length
       const r = t.actual_r != null ? `${t.actual_r.toFixed(1)}R` : '—'
-      return `  ${date} ${t.ticker.padEnd(6)} ${t.direction.toUpperCase().padEnd(6)} qty:${t.quantity} entry:$${t.entry_price.toFixed(2)} exit:$${t.exit_price?.toFixed(2) ?? 'open'} P/L:$${(t.pnl ?? 0).toFixed(2)} R:${r} rules_broken:${rBroken}`
+      const exitDesc = t.exit_price != null
+        ? `$${t.exit_price.toFixed(2)}${(t.exit_lots?.length ?? 0) > 1 ? ` (${t.exit_lots!.length} lots)` : ''}`
+        : (t.exit_lots?.length ?? 0) > 0 ? `partial(${t.exit_lots!.length} lots, ${t.remaining_qty ?? 0} rem)` : 'open'
+      return `  ${date} ${t.ticker.padEnd(6)} ${t.direction.toUpperCase().padEnd(6)} qty:${t.quantity} entry:$${t.entry_price.toFixed(2)} exit:${exitDesc} P/L:$${(t.pnl ?? 0).toFixed(2)} R:${r} rules_broken:${rBroken}`
     })
     .join('\n')
 

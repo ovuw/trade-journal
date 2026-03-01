@@ -1,4 +1,10 @@
 export type Direction = 'long' | 'short'
+
+export interface ExitLot {
+  qty: number
+  price: number
+  time: string
+}
 export type AssetClass = 'stock' | 'option' | 'futures' | 'forex' | 'crypto'
 export type MarketCondition = '' | 'trending' | 'choppy' | 'volatile' | 'ranging'
 export type TradingSession = 'pre-market' | 'rth' | 'after-hours'
@@ -85,6 +91,8 @@ export interface Trade {
   screenshot_id: string | null
   session?: TradingSession
   ibkr_transaction_id?: string | null
+  exit_lots?: ExitLot[]     // individual exit transactions (empty = no exits yet)
+  remaining_qty?: number    // shares still open; undefined treated as quantity (pre-migration trades)
   created_at: string
   updated_at: string
 }

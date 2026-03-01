@@ -16,6 +16,7 @@ export function exportTradesToCsv(trades: Trade[]): string {
     'fees', 'pnl', 'result_pct', 'actual_r', 'planned_rr',
     'setup_tag', 'mistake_tags', 'rules_broken',
     'emotion_entry', 'emotion_exit', 'confidence', 'notes',
+    'exit_lots',
   ]
 
   const rows = trades.map(t => {
@@ -26,6 +27,9 @@ export function exportTradesToCsv(trades: Trade[]): string {
     const rulesBroken = t.rules_broken_ids
       .map(id => DEFAULT_RULES.find(r => r.id === id)?.name ?? id)
       .join('; ')
+    const exitLotsJson = t.exit_lots && t.exit_lots.length > 1
+      ? JSON.stringify(t.exit_lots)
+      : ''
 
     return [
       t.ticker, t.direction, t.asset_class, t.entry_time, t.exit_time,
@@ -34,7 +38,7 @@ export function exportTradesToCsv(trades: Trade[]): string {
       t.actual_r?.toFixed(2) ?? '', t.planned_rr?.toFixed(2) ?? '',
       setupTag, mistakeTags, rulesBroken,
       t.emotion_entry, t.emotion_exit, t.confidence,
-      t.notes,
+      t.notes, exitLotsJson,
     ]
   })
 

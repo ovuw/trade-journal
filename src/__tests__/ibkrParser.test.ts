@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseDateTime, parseAssetClass, parseLots } from '../lib/ibkr'
+import { parseDateTime, parseAssetClass, parseLots, groupLotsByEntry } from '../lib/ibkr'
 
 // ─── parseDateTime ──────────────────────────────────────────────────────────
 
@@ -99,5 +99,50 @@ describe('parseLots', () => {
   it('parses option asset category', () => {
     const lots = parseLots(makeLotXml({ assetCategory: 'OPT', symbol: 'AAPL 240115C00150000' }))
     expect(lots[0].assetCategory).toBe('OPT')
+  })
+})
+
+// ─── groupLotsByEntry ─────────────────────────────────────────────────────────
+
+describe('groupLotsByEntry', () => {
+  it('groups single lot into its own group', () => {
+    const lots = parseLots(makeLotXml())
+    const grouped = groupLotsByEntry(lots)
+    expect(grouped.size).toBe(1)
+    expect(grouped.get('AAPL::20240115;093045')).toHaveLength(1)
+  })
+
+  it('groups two lots from the same entry together', () => {
+    const xml = `<?xml version="1.0"?><FlexQueryResponse><FlexStatements><FlexStatement><ClosedLots>
+      <ClosedLot symbol="AAPL" assetCategory="STK" openDateTime="20240115;093045" dateTime="20240116;103000" quantity="-50" costBasisPrice="150" tradePrice="155" ibCommission="-0.50" fifoPnlRealized="249" transactionID="TX001" buySell="SELL" />
+      <ClosedLot symbol="AAPL" assetCategory="STK" openDateTime="20240115;093045" dateTime="20240117;110000" quantity="-50" costBasisPrice="150" tradePrice="160" ibCommission="-0.50" fifoPnlRealized="499" transactionID="TX002" buySell="SELL" />
+    </ClosedLots></FlexStatement></FlexStatements></FlexQueryResponse>`
+    const lots = parseLots(xml)
+    const grouped = groupLotsByEntry(lots)
+    expect(grouped.size).toBe(1)
+    const group = grouped.get('AAPL::20240115;093045')!
+    expect(group).toHaveLength(2)
+    expect(group[0].transactionID).toBe('TX001')
+    expect(group[1].transactionID).toBe('TX002')
+  })
+
+  it('keeps lots from different entries in separate groups', () => {
+    const xml = `<?xml version="1.0"?><FlexQueryResponse><FlexStatements><FlexStatement><ClosedLots>
+      <ClosedLot symbol="AAPL" assetCategory="STK" openDateTime="20240115;093045" dateTime="20240116;103000" quantity="-100" costBasisPrice="150" tradePrice="155" ibCommission="-1" fifoPnlRealized="499" transactionID="TX001" buySell="SELL" />
+      <ClosedLot symbol="AAPL" assetCategory="STK" openDateTime="20240120;094500" dateTime="20240121;110000" quantity="-100" costBasisPrice="160" tradePrice="165" ibCommission="-1" fifoPnlRealized="499" transactionID="TX002" buySell="SELL" />
+    </ClosedLots></FlexStatement></FlexStatements></FlexQueryResponse>`
+    const lots = parseLots(xml)
+    const grouped = groupLotsByEntry(lots)
+    expect(grouped.size).toBe(2)
+  })
+
+  it('keeps different symbols in separate groups even with same openDateTime', () => {
+    const xml = `<?xml version="1.0"?><FlexQueryResponse><FlexStatements><FlexStatement><ClosedLots>
+      <ClosedLot symbol="AAPL" assetCategory="STK" openDateTime="20240115;093045" dateTime="20240116;103000" quantity="-100" costBasisPrice="150" tradePrice="155" ibCommission="-1" fifoPnlRealized="499" transactionID="TX001" buySell="SELL" />
+      <ClosedLot symbol="TSLA" assetCategory="STK" openDateTime="20240115;093045" dateTime="20240116;103000" quantity="-100" costBasisPrice="200" tradePrice="210" ibCommission="-1" fifoPnlRealized="999" transactionID="TX002" buySell="SELL" />
+    </ClosedLots></FlexStatement></FlexStatements></FlexQueryResponse>`
+    const lots = parseLots(xml)
+    const grouped = groupLotsByEntry(lots)
+    expect(grouped.size).toBe(2)
   })
 })

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useToast } from '../components/Toast'
-import { ImagePlus, X, CheckCircle, Clock } from 'lucide-react'
+import { ImagePlus, X, CheckCircle, Clock, Plus } from 'lucide-react'
 import PositionCalculator from '../components/PositionCalculator'
 import StarRating from '../components/StarRating'
 import MultiTagSelect from '../components/MultiTagSelect'
@@ -15,7 +15,8 @@ import {
   type Direction,
   type AssetClass,
 } from '../types'
-import { detectSession, nowLocal, calcPnl, calcResultPct } from '../lib/tradeUtils'
+import { detectSession, nowLocal, calcPartialPnl, calcResultPct, calcWeightedAvgExit } from '../lib/tradeUtils'
+import type { ExitLot } from '../types'
 
 const ASSET_CLASSES: AssetClass[] = ['stock', 'option', 'futures', 'forex', 'crypto']
 
@@ -152,6 +153,22 @@ export default function NewTrade() {
     return loadDraft() ?? makeEmptyForm()
   })
 
+  // Exit lots — managed separately from TradeFormData (not persisted in draft)
+  const [exitLots, setExitLots] = useState<{ qty: string; price: string; time: string }[]>(() => {
+    if (editId) {
+      const t = getTradeById(editId)
+      if (t) {
+        if (t.exit_lots && t.exit_lots.length > 0) {
+          return t.exit_lots.map(l => ({ qty: String(l.qty), price: String(l.price), time: l.time.slice(0, 16) }))
+        }
+        if (t.exit_price != null) {
+          return [{ qty: String(t.quantity), price: String(t.exit_price), time: t.exit_time?.slice(0, 16) ?? nowLocal() }]
+        }
+      }
+    }
+    return [{ qty: '', price: '', time: nowLocal() }]
+  })
+
   const [draftRestored, setDraftRestored] = useState(() => !editId && loadDraft() !== null)
   const [screenshots, setScreenshots] = useState<string[]>(() =>
     editId ? getScreenshots(editId) : []
@@ -166,6 +183,16 @@ export default function NewTrade() {
     setForm(prev => ({ ...prev, [key]: value }))
     setErrors(prev => ({ ...prev, [key]: undefined }))
   }, [])
+
+  const updateExitLot = (idx: number, field: 'qty' | 'price' | 'time', value: string) => {
+    setExitLots(prev => prev.map((l, i) => i === idx ? { ...l, [field]: value } : l))
+  }
+  const addExitLot = () => setExitLots(prev => [...prev, { qty: '', price: '', time: nowLocal() }])
+  const removeExitLot = (idx: number) => setExitLots(prev => prev.filter((_, i) => i !== idx))
+
+  // Derived: lots with price+qty filled → used for P/L preview and save logic
+  const filledExitLots = exitLots.filter(l => l.price.trim() !== '' && l.qty.trim() !== '')
+  const isOpenPosition = filledExitLots.length === 0
 
   const MAX_SCREENSHOTS = 5
 
@@ -200,11 +227,10 @@ export default function NewTrade() {
     update('quantity', String(qty))
   }, [update])
 
-  const validate = (requireExit = true): boolean => {
+  const validate = (): boolean => {
     const errs: Partial<Record<keyof TradeFormData, string>> = {}
     if (!form.ticker.trim()) errs.ticker = 'Required'
     if (!form.entry_price) errs.entry_price = 'Required'
-    if (requireExit && !form.exit_price) errs.exit_price = 'Required'
     if (!form.quantity) errs.quantity = 'Required'
     if (!form.entry_time) errs.entry_time = 'Required'
     setErrors(errs)
@@ -213,7 +239,7 @@ export default function NewTrade() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!validate(false)) return
+    if (!validate()) return
     setSubmitError(null)
 
     const entry = parseFloat(form.entry_price)
@@ -222,14 +248,23 @@ export default function NewTrade() {
     const stop = form.stop_price ? parseFloat(form.stop_price) : null
     const target = form.target_price ? parseFloat(form.target_price) : null
 
-    const isOpen = !form.exit_price
-    const exit = isOpen ? null : parseFloat(form.exit_price)
-    const pnl = isOpen || exit === null ? null : calcPnl(form.direction, entry, exit, qty, fees)
+    const exit_lots_data: ExitLot[] = filledExitLots.map(l => ({
+      qty: parseFloat(l.qty),
+      price: parseFloat(l.price),
+      time: l.time || form.entry_time,
+    }))
+    const totalExitQty = exit_lots_data.reduce((s, l) => s + l.qty, 0)
+    const isFullyClosed = !isOpenPosition && Math.abs(totalExitQty - qty) < 0.001
+    const remaining_qty = isOpenPosition ? qty : Math.max(0, qty - totalExitQty)
+
+    // pnl only set when fully closed; partial realised P/L shown in UI but not stored
+    const pnl = isOpenPosition ? null : (isFullyClosed ? calcPartialPnl(form.direction, entry, exit_lots_data, fees) : null)
     const result_pct = pnl === null ? null : calcResultPct(pnl, entry, qty)
+    const exit_price = isFullyClosed ? (calcWeightedAvgExit(exit_lots_data) ?? null) : null
+    const exit_time = isFullyClosed ? (exit_lots_data[exit_lots_data.length - 1]?.time ?? null) : null
 
     const stopDist = stop ? Math.abs(entry - stop) : null
-    const planned_rr =
-      stopDist && target ? Math.abs(target - entry) / stopDist : null
+    const planned_rr = stopDist && target ? Math.abs(target - entry) / stopDist : null
     const initial_risk = stopDist ? stopDist * qty : null
     const actual_r = initial_risk && initial_risk > 0 && pnl !== null ? pnl / initial_risk : null
 
@@ -240,7 +275,7 @@ export default function NewTrade() {
           direction: form.direction,
           asset_class: form.asset_class,
           entry_price: entry,
-          exit_price: exit,
+          exit_price,
           quantity: qty,
           fees,
           stop_price: stop,
@@ -248,7 +283,7 @@ export default function NewTrade() {
           planned_rr,
           actual_r,
           entry_time: form.entry_time,
-          exit_time: isOpen ? null : (form.exit_time || form.entry_time),
+          exit_time,
           setup_tag_id: form.setup_tag_id,
           mistake_tag_ids: form.mistake_tag_ids,
           rules_broken_ids: form.rules_broken_ids,
@@ -261,6 +296,8 @@ export default function NewTrade() {
           result_pct,
           screenshot_id: null,
           session: detectSession(form.entry_time),
+          exit_lots: exit_lots_data,
+          remaining_qty,
         })
         try {
           saveScreenshots(editId, screenshots)
@@ -284,7 +321,7 @@ export default function NewTrade() {
           direction: form.direction,
           asset_class: form.asset_class,
           entry_price: entry,
-          exit_price: exit,
+          exit_price,
           quantity: qty,
           fees,
           stop_price: stop,
@@ -292,7 +329,7 @@ export default function NewTrade() {
           planned_rr,
           actual_r,
           entry_time: form.entry_time,
-          exit_time: isOpen ? null : (form.exit_time || form.entry_time),
+          exit_time,
           setup_tag_id: form.setup_tag_id,
           mistake_tag_ids: form.mistake_tag_ids,
           rules_broken_ids: form.rules_broken_ids,
@@ -305,6 +342,8 @@ export default function NewTrade() {
           result_pct,
           screenshot_id: null,
           session: detectSession(form.entry_time),
+          exit_lots: exit_lots_data,
+          remaining_qty,
         })
         try {
           saveScreenshots(trade.id, screenshots)
@@ -466,7 +505,7 @@ export default function NewTrade() {
                 </div>
               </div>
 
-              {/* Times */}
+              {/* Entry Time */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label required htmlFor="nt-entry-time">Entry Time</Label>
@@ -478,16 +517,6 @@ export default function NewTrade() {
                     className={`input text-sm ${errors.entry_time ? 'border-loss' : ''}`}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="nt-exit-time">Exit Time</Label>
-                  <input
-                    id="nt-exit-time"
-                    type="datetime-local"
-                    value={form.exit_time}
-                    onChange={e => update('exit_time', e.target.value)}
-                    className="input text-sm"
-                  />
-                </div>
               </div>
             </div>
           </div>
@@ -496,26 +525,82 @@ export default function NewTrade() {
           <div className="bg-bg-card border border-border rounded-lg p-5">
             <SectionHeader title="Pricing & Size" />
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <PriceInput
-                    id="nt-entry-price"
-                    label="Entry Price"
-                    value={form.entry_price}
-                    onChange={v => update('entry_price', v)}
-                    required
-                  />
-                  {errors.entry_price && <p className="text-xs text-loss mt-1">{errors.entry_price}</p>}
+              <div>
+                <PriceInput
+                  id="nt-entry-price"
+                  label="Entry Price"
+                  value={form.entry_price}
+                  onChange={v => update('entry_price', v)}
+                  required
+                />
+                {errors.entry_price && <p className="text-xs text-loss mt-1">{errors.entry_price}</p>}
+              </div>
+
+              {/* Exit Lots — multi-row, one row per exit fill */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Exit Lots</Label>
+                  <span className="text-xs text-text-muted">leave blank to save as open position</span>
                 </div>
-                <div>
-                  <PriceInput
-                    id="nt-exit-price"
-                    label="Exit Price"
-                    value={form.exit_price}
-                    onChange={v => update('exit_price', v)}
-                  />
-                  {errors.exit_price && <p className="text-xs text-loss mt-1">{errors.exit_price}</p>}
+                <div className="space-y-2">
+                  {exitLots.map((lot, idx) => (
+                    <div key={idx} className="flex gap-2 items-end">
+                      <div className="w-24">
+                        {idx === 0 && <label className="text-xs text-text-secondary block mb-1">Qty</label>}
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={lot.qty}
+                          onChange={e => updateExitLot(idx, 'qty', e.target.value)}
+                          placeholder={form.quantity || 'Qty'}
+                          className="input font-mono text-sm"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        {idx === 0 && <label className="text-xs text-text-secondary block mb-1">Exit Price</label>}
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary text-sm" aria-hidden="true">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={lot.price}
+                            onChange={e => updateExitLot(idx, 'price', e.target.value)}
+                            placeholder="0.00"
+                            className="input pl-6 font-mono text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        {idx === 0 && <label className="text-xs text-text-secondary block mb-1">Exit Time</label>}
+                        <input
+                          type="datetime-local"
+                          value={lot.time}
+                          onChange={e => updateExitLot(idx, 'time', e.target.value)}
+                          className="input text-sm"
+                        />
+                      </div>
+                      {exitLots.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeExitLot(idx)}
+                          className="mb-0.5 text-text-muted hover:text-loss transition-colors flex-shrink-0"
+                          aria-label="Remove exit lot"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={addExitLot}
+                  className="mt-2 flex items-center gap-1.5 text-xs text-accent border border-accent/30 hover:border-accent/60 hover:bg-accent/5 rounded-md px-3 py-1.5 transition-colors"
+                >
+                  <Plus size={11} /> Add exit lot
+                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -568,23 +653,24 @@ export default function NewTrade() {
                 </div>
               </div>
 
-              {/* Computed P/L preview — only when exit is filled */}
-              {form.entry_price && form.exit_price && form.quantity && (
+              {/* Computed P/L preview — only when at least one exit lot is filled */}
+              {form.entry_price && form.quantity && filledExitLots.length > 0 && (
                 <div className="border-t border-border pt-3">
                   {(() => {
                     const entry = parseFloat(form.entry_price)
-                    const exit = parseFloat(form.exit_price)
                     const qty = parseFloat(form.quantity)
                     const fees = parseFloat(form.fees) || 0
-                    const pnl =
-                      form.direction === 'long'
-                        ? (exit - entry) * qty - fees
-                        : (entry - exit) * qty - fees
+                    const lots = filledExitLots.map(l => ({ qty: parseFloat(l.qty), price: parseFloat(l.price) }))
+                    const totalExitQty = lots.reduce((s, l) => s + l.qty, 0)
+                    const pnl = calcPartialPnl(form.direction, entry, lots, fees)
                     const pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
                     const isProfit = pnl >= 0
+                    const isPartial = Math.abs(totalExitQty - qty) > 0.001
                     return (
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-text-secondary">Calculated P/L</span>
+                        <span className="text-xs text-text-secondary">
+                          {isPartial ? `Realised P/L (${totalExitQty.toLocaleString()} of ${qty.toLocaleString()} sh)` : 'Calculated P/L'}
+                        </span>
                         <div className="flex items-center gap-3">
                           <span className={`font-mono font-semibold ${isProfit ? 'text-profit' : 'text-loss'}`}>
                             {isProfit ? '+' : ''}${pnl.toFixed(2)}
@@ -748,7 +834,7 @@ export default function NewTrade() {
               Cancel
             </button>
             <button type="submit" className="btn-primary px-6">
-              {isEdit ? 'Update Trade' : form.exit_price ? 'Save Trade' : 'Save Open Position'}
+              {isEdit ? 'Update Trade' : !isOpenPosition ? 'Save Trade' : 'Save Open Position'}
             </button>
           </div>
         </div>

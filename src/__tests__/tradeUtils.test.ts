@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcPnl, calcResultPct, detectSession } from '../lib/tradeUtils'
+import { calcPnl, calcResultPct, calcPartialPnl, calcRealizedQty, calcWeightedAvgExit, detectSession } from '../lib/tradeUtils'
 
 // ─── P&L calculation ──────────────────────────────────────────────────────────
 
@@ -81,6 +81,76 @@ describe('calcResultPct', () => {
   it('returns 0 for breakeven trade', () => {
     const pnl = calcPnl('long', 100, 100, 10)
     expect(calcResultPct(pnl, 100, 10)).toBe(0)
+  })
+})
+
+// ─── calcPartialPnl ───────────────────────────────────────────────────────────
+
+describe('calcPartialPnl', () => {
+  it('matches calcPnl for single full-position lot', () => {
+    const lots = [{ qty: 100, price: 110 }]
+    expect(calcPartialPnl('long', 100, lots)).toBe(calcPnl('long', 100, 110, 100))
+  })
+
+  it('aggregates two exit lots correctly (long)', () => {
+    // 50 shares @ 110 = +$500, 50 shares @ 120 = +$1000, total = +$1500
+    const lots = [{ qty: 50, price: 110 }, { qty: 50, price: 120 }]
+    expect(calcPartialPnl('long', 100, lots)).toBe(1500)
+  })
+
+  it('aggregates two exit lots correctly (short)', () => {
+    // entry 100, exit 90 × 50 = +$500, exit 80 × 50 = +$1000
+    const lots = [{ qty: 50, price: 90 }, { qty: 50, price: 80 }]
+    expect(calcPartialPnl('short', 100, lots)).toBe(1500)
+  })
+
+  it('deducts fees from aggregate', () => {
+    const lots = [{ qty: 100, price: 110 }]
+    expect(calcPartialPnl('long', 100, lots, 10)).toBe(990)
+  })
+
+  it('returns 0 for empty lots', () => {
+    expect(calcPartialPnl('long', 100, [])).toBe(0)
+  })
+
+  it('handles partial exit (only some shares sold)', () => {
+    // 50 of 100 shares sold @ 110 = +$500
+    const lots = [{ qty: 50, price: 110 }]
+    expect(calcPartialPnl('long', 100, lots)).toBe(500)
+  })
+})
+
+// ─── calcRealizedQty ──────────────────────────────────────────────────────────
+
+describe('calcRealizedQty', () => {
+  it('sums quantities', () => {
+    expect(calcRealizedQty([{ qty: 50 }, { qty: 30 }, { qty: 20 }])).toBe(100)
+  })
+
+  it('returns 0 for empty array', () => {
+    expect(calcRealizedQty([])).toBe(0)
+  })
+})
+
+// ─── calcWeightedAvgExit ──────────────────────────────────────────────────────
+
+describe('calcWeightedAvgExit', () => {
+  it('returns null for empty array', () => {
+    expect(calcWeightedAvgExit([])).toBeNull()
+  })
+
+  it('returns price for single lot', () => {
+    expect(calcWeightedAvgExit([{ qty: 100, price: 155 }])).toBe(155)
+  })
+
+  it('computes weighted average correctly', () => {
+    // 50 @ 100 + 50 @ 120 = avg 110
+    expect(calcWeightedAvgExit([{ qty: 50, price: 100 }, { qty: 50, price: 120 }])).toBe(110)
+  })
+
+  it('weights by qty, not equal weight', () => {
+    // 100 @ 100 + 50 @ 130 = (10000 + 6500) / 150 = 110
+    expect(calcWeightedAvgExit([{ qty: 100, price: 100 }, { qty: 50, price: 130 }])).toBeCloseTo(110)
   })
 })
 

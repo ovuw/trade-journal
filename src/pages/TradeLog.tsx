@@ -10,12 +10,13 @@ import {
 import { getTrades, deleteTrade, deleteTrades, saveTrade, updateTrade, getScreenshots, deleteScreenshots, getSetupTags, getMistakeTags } from '../lib/db'
 import { getStorageScreenshotUrl, deleteStorageScreenshot } from '../lib/storage'
 import { exportTradesToCsv, downloadCsv, CSV_TEMPLATE_EXAMPLE } from '../lib/csvExport'
-import { parseCsv, type ParsedTrade } from '../lib/csvImport'
+import { parseCsv, type ParsedTrade, type OrphanedSell } from '../lib/csvImport'
 import {
   DEFAULT_RULES,
   type Trade, type Direction,
 } from '../types'
-import { calcPnl, calcResultPct, nowLocal } from '../lib/tradeUtils'
+import { calcPnl, calcResultPct, calcPartialPnl, calcWeightedAvgExit, nowLocal } from '../lib/tradeUtils'
+import type { ExitLot } from '../types'
 
 const SETUP_TAGS = getSetupTags()
 const MISTAKE_TAGS = getMistakeTags()
@@ -107,10 +108,16 @@ function DeleteConfirm({ trade, onConfirm, onCancel }: { trade: Trade; onConfirm
 
 // ─── Import modal ─────────────────────────────────────────────────────────────
 
+function dedupKey(ticker: string, entryTime: string, entryPrice: number, quantity: number): string {
+  return `${ticker}|${entryTime.slice(0, 10)}|${entryPrice}|${quantity}`
+}
+
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [preview, setPreview] = useState<ParsedTrade[] | null>(null)
   const [parseErrors, setParseErrors] = useState<string[]>([])
   const [skipped, setSkipped] = useState(0)
+  const [duplicates, setDuplicates] = useState(0)
+  const [orphanedSells, setOrphanedSells] = useState<OrphanedSell[]>([])
   const [detectedFormat, setDetectedFormat] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -118,9 +125,17 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const handleFile = async (file: File) => {
     const text = await file.text()
     const result = parseCsv(text)
+    const existingKeys = new Set(
+      getTrades().map(t => dedupKey(t.ticker, t.entry_time, t.entry_price, t.quantity))
+    )
+    const dupeCount = result.trades.filter(
+      p => existingKeys.has(dedupKey(p.ticker, p.entry_time, p.entry_price, p.quantity))
+    ).length
     setPreview(result.trades)
     setParseErrors(result.errors)
     setSkipped(result.skipped)
+    setDuplicates(dupeCount)
+    setOrphanedSells(result.orphanedSells)
     setDetectedFormat(result.detectedFormat)
   }
 
@@ -131,26 +146,120 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
 
   const handleImport = () => {
     if (!preview || preview.length === 0) return
-    preview.forEach(p => {
-      const entry = p.entry_price, exit = p.exit_price, qty = p.quantity, fees = p.fees
-      const pnl = calcPnl(p.direction, entry, exit, qty, fees)
-      const result_pct = calcResultPct(pnl, entry, qty)
-      const stopDist = p.stop_price ? Math.abs(entry - p.stop_price) : null
-      const planned_rr = stopDist && p.target_price ? Math.abs(p.target_price - entry) / stopDist : null
-      const initial_risk = stopDist ? stopDist * qty : null
-      const actual_r = initial_risk && initial_risk > 0 ? pnl / initial_risk : null
-      saveTrade({
-        ticker: p.ticker, direction: p.direction, asset_class: p.asset_class,
-        entry_price: entry, exit_price: exit, quantity: qty, fees,
-        stop_price: p.stop_price, target_price: p.target_price,
-        planned_rr, actual_r,
-        entry_time: p.entry_time, exit_time: p.exit_time,
-        setup_tag_id: p.setup_tag_id,
-        mistake_tag_ids: [], rules_broken_ids: [], rules_followed_ids: [],
-        emotion_entry: 0, emotion_exit: 0, confidence: 0,
-        notes: p.notes, pnl, result_pct, screenshot_id: null,
-      })
+    const existingKeys = new Set(
+      getTrades().map(t => dedupKey(t.ticker, t.entry_time, t.entry_price, t.quantity))
+    )
+    const toImport = preview.filter(
+      p => !existingKeys.has(dedupKey(p.ticker, p.entry_time, p.entry_price, p.quantity))
+    )
+    toImport.forEach(p => {
+      const entry = p.entry_price
+      const exit = p.exit_price
+      const qty = p.quantity
+      const fees = p.fees
+      if (exit === null) {
+        // Open position — no exit yet
+        saveTrade({
+          ticker: p.ticker, direction: p.direction, asset_class: p.asset_class,
+          entry_price: entry, exit_price: null, quantity: qty, fees,
+          stop_price: p.stop_price, target_price: p.target_price,
+          planned_rr: null, actual_r: null,
+          entry_time: p.entry_time, exit_time: null,
+          setup_tag_id: p.setup_tag_id,
+          mistake_tag_ids: [], rules_broken_ids: [], rules_followed_ids: [],
+          emotion_entry: 0, emotion_exit: 0, confidence: 0,
+          notes: p.notes, pnl: null, result_pct: null, screenshot_id: null,
+          exit_lots: [], remaining_qty: qty,
+        })
+      } else {
+        // Closed trade
+        const pnl = calcPnl(p.direction, entry, exit, qty, fees)
+        const result_pct = calcResultPct(pnl, entry, qty)
+        const stopDist = p.stop_price ? Math.abs(entry - p.stop_price) : null
+        const planned_rr = stopDist && p.target_price ? Math.abs(p.target_price - entry) / stopDist : null
+        const initial_risk = stopDist ? stopDist * qty : null
+        const actual_r = initial_risk && initial_risk > 0 ? pnl / initial_risk : null
+        // Use per-lot exits from broker parsing if available, otherwise synthesise a single lot
+        const exit_lots = p.exit_lots && p.exit_lots.length > 0
+          ? p.exit_lots
+          : [{ qty, price: exit, time: p.exit_time ?? p.entry_time }]
+        saveTrade({
+          ticker: p.ticker, direction: p.direction, asset_class: p.asset_class,
+          entry_price: entry, exit_price: exit, quantity: qty, fees,
+          stop_price: p.stop_price, target_price: p.target_price,
+          planned_rr, actual_r,
+          entry_time: p.entry_time, exit_time: p.exit_time,
+          setup_tag_id: p.setup_tag_id,
+          mistake_tag_ids: [], rules_broken_ids: [], rules_followed_ids: [],
+          emotion_entry: 0, emotion_exit: 0, confidence: 0,
+          notes: p.notes, pnl, result_pct, screenshot_id: null,
+          exit_lots, remaining_qty: 0,
+        })
+      }
     })
+    // Close open positions using orphaned sells (cross-file / cross-year positions).
+    // Groups all sells per ticker and aggregates them to handle partial-lot closes.
+    if (orphanedSells.length > 0) {
+      const sellsByTicker = new Map<string, OrphanedSell[]>()
+      for (const sell of orphanedSells) {
+        const arr = sellsByTicker.get(sell.ticker) ?? []
+        arr.push(sell)
+        sellsByTicker.set(sell.ticker, arr)
+      }
+
+      for (const [ticker, sells] of sellsByTicker) {
+        sells.sort((a, b) => a.datetime.localeCompare(b.datetime))
+
+        const openTrades = getTrades()
+          .filter(t => t.ticker === ticker && t.exit_price === null && t.direction === 'long')
+          .sort((a, b) => a.entry_time.localeCompare(b.entry_time))
+
+        let sellIdx = 0
+        let sellRemaining = sells[0]?.qty ?? 0
+
+        for (const openTrade of openTrades) {
+          if (sellIdx >= sells.length) break
+
+          let posRemaining = openTrade.quantity
+          let exitValue = 0
+          let exitFees = 0
+          let lastDatetime = openTrade.entry_time
+
+          while (posRemaining > 0 && sellIdx < sells.length) {
+            const sell = sells[sellIdx]
+            const usedQty = Math.min(posRemaining, sellRemaining)
+            const ratio = usedQty / sell.qty
+            exitValue += sell.price * usedQty
+            exitFees += sell.fees * ratio
+            lastDatetime = sell.datetime
+            posRemaining -= usedQty
+            sellRemaining -= usedQty
+            if (sellRemaining <= 0) {
+              sellIdx++
+              sellRemaining = sells[sellIdx]?.qty ?? 0
+            }
+          }
+
+          if (posRemaining <= 0) {
+            const avgExitPrice = Math.round((exitValue / openTrade.quantity) * 10000) / 10000
+            const totalFees = Math.round((openTrade.fees + exitFees) * 100) / 100
+            const pnl = calcPnl('long', openTrade.entry_price, avgExitPrice, openTrade.quantity, totalFees)
+            const result_pct = calcResultPct(pnl, openTrade.entry_price, openTrade.quantity)
+            const closeLot = { qty: openTrade.quantity, price: avgExitPrice, time: lastDatetime }
+            const updatedLots = [...(openTrade.exit_lots ?? []), closeLot]
+            updateTrade(openTrade.id, {
+              exit_price: avgExitPrice,
+              exit_time: lastDatetime,
+              fees: totalFees,
+              pnl,
+              result_pct,
+              exit_lots: updatedLots,
+              remaining_qty: 0,
+            })
+          }
+        }
+      }
+    }
     onImported(); onClose()
   }
 
@@ -211,8 +320,11 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
           {preview && preview.length > 0 && (
             <div>
               <p className="text-sm text-text-secondary mb-2">
-                <span className="text-profit font-medium">{preview.length} trades</span> ready to import
-                {skipped > 0 && <span className="text-warning ml-2">({skipped} rows skipped)</span>}
+                <span className="text-profit font-medium">{preview.length - duplicates} new trades</span> ready to import
+                {preview.filter(p => p.exit_price === null).length > 0 && <span className="text-accent ml-2">· {preview.filter(p => p.exit_price === null).length} open position{preview.filter(p => p.exit_price === null).length !== 1 ? 's' : ''}</span>}
+                {orphanedSells.length > 0 && <span className="text-profit ml-2">· {orphanedSells.length} cross-file position{orphanedSells.length !== 1 ? 's' : ''} will close</span>}
+                {duplicates > 0 && <span className="text-text-muted ml-2">· {duplicates} duplicate{duplicates !== 1 ? 's' : ''} skipped</span>}
+                {skipped > 0 && <span className="text-warning ml-2">· {skipped} rows skipped</span>}
               </p>
               <div className="border border-border rounded-lg overflow-hidden">
                 <table className="w-full text-xs">
@@ -227,7 +339,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                         <td className="px-3 py-2 font-mono font-semibold text-text-primary">{t.ticker}</td>
                         <td className="px-3 py-2"><DirectionBadge dir={t.direction} /></td>
                         <td className="px-3 py-2 font-mono">${t.entry_price}</td>
-                        <td className="px-3 py-2 font-mono">${t.exit_price}</td>
+                        <td className="px-3 py-2 font-mono">{t.exit_price !== null ? `$${t.exit_price}` : <span className="text-accent text-xs font-semibold">OPEN</span>}</td>
                         <td className="px-3 py-2 font-mono">{t.quantity}</td>
                         <td className="px-3 py-2 text-text-secondary">{fmtDate(t.entry_time)}</td>
                       </tr>
@@ -240,7 +352,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
                   </tbody>
                 </table>
               </div>
-              <button onClick={() => { setPreview(null); setParseErrors([]); setDetectedFormat(null) }} className="text-xs text-text-muted hover:text-text-secondary mt-2">
+              <button onClick={() => { setPreview(null); setParseErrors([]); setDetectedFormat(null); setDuplicates(0); setOrphanedSells([]) }} className="text-xs text-text-muted hover:text-text-secondary mt-2">
                 ← Choose different file
               </button>
             </div>
@@ -250,10 +362,10 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
           <button onClick={onClose} className="btn-secondary text-sm">Cancel</button>
           <button
             onClick={handleImport}
-            disabled={!preview || preview.length === 0}
+            disabled={!preview || preview.length - duplicates === 0}
             className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Import {preview?.length ?? 0} Trades
+            Import {(preview?.length ?? 0) - duplicates} Trades
           </button>
         </div>
       </div>
@@ -274,18 +386,33 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete, onCloseTrade }: {
   const mistakeTags = getTagsByIds(trade.mistake_tag_ids)
   const rulesBroken = getRuleItems(trade.rules_broken_ids)
 
+  const remainingQty = trade.remaining_qty ?? trade.quantity
+  const hasPartialExits = (trade.exit_lots?.length ?? 0) > 0
+
   const [showCloseForm, setShowCloseForm] = useState(false)
   const [closeExitPrice, setCloseExitPrice] = useState('')
+  const [closeQtyStr, setCloseQtyStr] = useState(String(remainingQty))
   const [closeExitTime, setCloseExitTime] = useState(nowLocal())
 
   function handleClose() {
     const exitPrice = parseFloat(closeExitPrice)
-    if (!exitPrice) return
-    const pnl = calcPnl(trade.direction, trade.entry_price, exitPrice, trade.quantity, trade.fees)
-    const result_pct = calcResultPct(pnl, trade.entry_price, trade.quantity)
+    const closeQty = parseFloat(closeQtyStr)
+    if (!exitPrice || isNaN(closeQty) || closeQty <= 0) return
+
+    const newLot: ExitLot = { qty: closeQty, price: exitPrice, time: closeExitTime || nowLocal() }
+    const updatedLots = [...(trade.exit_lots ?? []), newLot]
+    const newRemainingQty = Math.max(0, remainingQty - closeQty)
+    const isFullyClosed = newRemainingQty <= 0
+
+    const pnl = isFullyClosed ? calcPartialPnl(trade.direction, trade.entry_price, updatedLots, trade.fees) : null
+    const result_pct = pnl !== null ? calcResultPct(pnl, trade.entry_price, trade.quantity) : null
+    const avgExit = isFullyClosed ? calcWeightedAvgExit(updatedLots) : null
+
     updateTrade(trade.id, {
-      exit_price: exitPrice,
-      exit_time: closeExitTime || nowLocal(),
+      exit_lots: updatedLots,
+      remaining_qty: newRemainingQty,
+      exit_price: avgExit,
+      exit_time: isFullyClosed ? (closeExitTime || nowLocal()) : null,
       pnl,
       result_pct,
     })
@@ -348,11 +475,49 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete, onCloseTrade }: {
               {trade.emotion_entry > 0 && <span><span className="text-text-secondary text-xs">Emotion entry→exit </span><span className="font-mono">{trade.emotion_entry}→{trade.emotion_exit}</span></span>}
               {trade.confidence > 0 && <span><span className="text-text-secondary text-xs">Confidence </span><span className="font-mono">{trade.confidence}/5</span></span>}
             </div>
-            {/* Close Trade inline form — only for open positions */}
+            {/* Exit lots breakdown — shown when trade has partial or full exit lots */}
+            {hasPartialExits && (
+              <div>
+                <p className="text-xs text-text-secondary mb-1.5">Exit Lots</p>
+                <div className="space-y-1">
+                  {trade.exit_lots!.map((lot, i) => {
+                    const lotPnl = calcPnl(trade.direction, trade.entry_price, lot.price, lot.qty)
+                    return (
+                      <div key={i} className="flex items-center gap-3 text-xs font-mono text-text-secondary">
+                        <span className="text-text-muted w-4">#{i + 1}</span>
+                        <span className="text-text-primary">{lot.qty.toLocaleString()} sh</span>
+                        <span>@ ${lot.price.toFixed(2)}</span>
+                        <span className="text-text-muted">{lot.time.slice(0, 10)}</span>
+                        <span className={lotPnl >= 0 ? 'text-profit' : 'text-loss'}>
+                          {lotPnl >= 0 ? '+' : ''}${lotPnl.toFixed(2)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {remainingQty > 0 && (
+                  <p className="text-xs text-text-muted mt-1">{remainingQty.toLocaleString()} shares still open</p>
+                )}
+              </div>
+            )}
+
+            {/* Close Trade / Partial Close form — for positions with shares still open */}
             {trade.exit_price === null && (
               <div className="border-t border-border pt-3">
                 {showCloseForm ? (
                   <div className="flex flex-wrap gap-2 items-end">
+                    <div>
+                      <label className="text-xs text-text-secondary block mb-1">Qty to close</label>
+                      <input
+                        type="number"
+                        step="1"
+                        min="1"
+                        max={remainingQty}
+                        value={closeQtyStr}
+                        onChange={e => setCloseQtyStr(e.target.value)}
+                        className="input font-mono text-sm w-24"
+                      />
+                    </div>
                     <div>
                       <label className="text-xs text-text-secondary block mb-1">Exit Price</label>
                       <div className="relative">
@@ -380,10 +545,10 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete, onCloseTrade }: {
                     </div>
                     <button
                       onClick={handleClose}
-                      disabled={!closeExitPrice}
+                      disabled={!closeExitPrice || !closeQtyStr}
                       className="btn-primary text-xs px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Confirm Close
+                      {parseFloat(closeQtyStr) >= remainingQty ? 'Close Position' : 'Record Partial Exit'}
                     </button>
                     <button
                       onClick={() => setShowCloseForm(false)}
@@ -397,7 +562,7 @@ function ExpandedRow({ trade, colSpan, onEdit, onDelete, onCloseTrade }: {
                     onClick={() => setShowCloseForm(true)}
                     className="text-xs text-accent hover:underline underline-offset-2"
                   >
-                    Close this position →
+                    {hasPartialExits ? `Record exit for remaining ${remainingQty.toLocaleString()} shares →` : 'Close this position →'}
                   </button>
                 )}
               </div>
@@ -737,7 +902,7 @@ export default function TradeLog() {
                     checked={allPageSelected}
                     ref={el => { if (el) el.indeterminate = somePageSelected && !allPageSelected }}
                     onChange={toggleSelectAll}
-                    className="accent-accent cursor-pointer"
+                    className={`accent-accent cursor-pointer transition-opacity ${selected.size > 0 ? '' : 'opacity-30 hover:opacity-100'}`}
                   />
                 </th>
                 <th className="w-5 px-1 py-2.5" />
@@ -784,7 +949,7 @@ export default function TradeLog() {
                         type="checkbox"
                         checked={selected.has(trade.id)}
                         onChange={() => toggleSelect(trade.id)}
-                        className="accent-accent cursor-pointer"
+                        className={`accent-accent cursor-pointer transition-opacity ${selected.has(trade.id) ? '' : 'opacity-0 group-hover:opacity-100'}`}
                       />
                     </td>
                     <td className="px-1 py-2.5 text-text-muted">
@@ -801,7 +966,12 @@ export default function TradeLog() {
                       <div className="text-xs text-text-primary">{fmtDate(trade.entry_time)}</div>
                       <div className="text-xs text-text-muted flex items-center gap-1">
                         {fmtTime(trade.entry_time)}
-                        {isOpen && (
+                        {isOpen && (trade.exit_lots?.length ?? 0) > 0 && (
+                          <span className="text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide bg-warning/15 text-warning">
+                            PARTIAL
+                          </span>
+                        )}
+                        {isOpen && !(trade.exit_lots?.length) && (
                           <span className="text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide bg-accent/15 text-accent">
                             OPEN
                           </span>
