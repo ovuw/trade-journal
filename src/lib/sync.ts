@@ -67,6 +67,14 @@ export async function deleteSyncedTrade(tradeId: string): Promise<void> {
   await client.from('trades').delete().eq('id', tradeId)
 }
 
+/** Delete multiple trades from Supabase in a single request. No-op if not configured. */
+export async function deleteSyncedTrades(tradeIds: string[]): Promise<void> {
+  if (tradeIds.length === 0) return
+  const client = getSupabaseClient()
+  if (!client) return
+  await client.from('trades').delete().in('id', tradeIds)
+}
+
 /** Delete all trades for a user from Supabase. No-op if not configured. */
 export async function deleteAllSyncedTrades(userId: string): Promise<void> {
   const client = getSupabaseClient()

@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { getTrades, deleteTrade, deleteTrades, saveTrade, updateTrade, getScreenshots, deleteScreenshots, getSetupTags, getMistakeTags } from '../lib/db'
 import { getStorageScreenshotUrl, deleteStorageScreenshot } from '../lib/storage'
+import { deleteSyncedTrade, deleteSyncedTrades } from '../lib/sync'
+import { getSession } from '../lib/supabase'
 import { exportTradesToCsv, downloadCsv, CSV_TEMPLATE_EXAMPLE } from '../lib/csvExport'
 import { parseCsv, type ParsedTrade, type OrphanedSell } from '../lib/csvImport'
 import {
@@ -595,6 +597,7 @@ function isTyping(): boolean {
 export default function TradeLog() {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const [userId, setUserId] = useState<string | null>(null)
   const [allTrades, setAllTrades] = useState(() => getTrades())
   const [sort, setSort] = usePersistentState<{ key: SortKey; dir: 'asc' | 'desc' }>('tj_ui_tradelog_sort', { key: 'entry_time', dir: 'desc' })
   const [filters, setFilters] = usePersistentState<Filters>('tj_ui_tradelog_filters', DEFAULT_FILTERS)
@@ -609,6 +612,7 @@ export default function TradeLog() {
   const undoTradeRef = useRef<(typeof allTrades)[0] | null>(null)
   const rowRefsMap = useRef<Map<string, HTMLTableRowElement>>(new Map())
 
+  useEffect(() => { getSession().then(s => setUserId(s?.user?.id ?? null)) }, [])
   useEffect(() => { setPage(1); setFocusedRowIndex(null) }, [filters, sort])
 
   const setFilter = <K extends keyof Filters>(key: K, value: Filters[K]) =>
@@ -707,6 +711,7 @@ export default function TradeLog() {
     const trade = allTrades.find(t => t.id === deleteId)
     deleteTrade(deleteId); deleteScreenshots(deleteId)
     if (trade?.screenshot_id) void deleteStorageScreenshot(trade.screenshot_id)
+    if (userId) void deleteSyncedTrade(deleteId)
     setAllTrades(getTrades())
     if (expandedId === deleteId) setExpandedId(null)
     setSelected(prev => { const n = new Set(prev); n.delete(deleteId); return n })
@@ -723,6 +728,7 @@ export default function TradeLog() {
     ids.forEach(id => deleteScreenshots(id))
     trades.forEach(t => { if (t.screenshot_id) void deleteStorageScreenshot(t.screenshot_id) })
     deleteTrades(ids)
+    if (userId) void deleteSyncedTrades(ids)
     setAllTrades(getTrades())
     setSelected(new Set())
     setBulkDeleteConfirm(false)
