@@ -32,6 +32,7 @@ create table if not exists trades (
   session       text,
   exit_lots     jsonb,
   remaining_qty int,
+  deleted_at    text,
   created_at    text not null,
   updated_at    text not null
 );

@@ -5,13 +5,15 @@
  * See tasks/sync_schema.sql for the required Supabase table definition.
  *
  * Sync strategy: last-write-wins based on updated_at timestamp.
+ * Deletions use soft-delete (deleted_at timestamp) so they propagate
+ * to all devices on the next sync instead of being pulled back.
  */
 import { getSupabaseClient } from './supabase'
 import { getTrades, replaceTrades } from './db'
 import type { Trade } from '../types'
 
-// Trades stored in Supabase carry an extra user_id field
-type RemoteTrade = Trade & { user_id: string }
+// Trades stored in Supabase carry extra sync fields
+type RemoteTrade = Trade & { user_id: string; deleted_at: string | null }
 
 /**
  * Pure merge of local + remote trade arrays.
@@ -60,33 +62,34 @@ export async function pushTrade(trade: Trade, userId: string): Promise<void> {
   await client.from('trades').upsert({ ...trade, user_id: userId })
 }
 
-/** Delete a trade from Supabase. No-op if not configured. */
+/** Soft-delete a trade in Supabase by setting deleted_at. No-op if not configured. */
 export async function deleteSyncedTrade(tradeId: string): Promise<void> {
   const client = getSupabaseClient()
   if (!client) return
-  await client.from('trades').delete().eq('id', tradeId)
+  await client.from('trades').update({ deleted_at: new Date().toISOString() }).eq('id', tradeId)
 }
 
-/** Delete multiple trades from Supabase in a single request. No-op if not configured. */
+/** Soft-delete multiple trades in Supabase in a single request. No-op if not configured. */
 export async function deleteSyncedTrades(tradeIds: string[]): Promise<void> {
   if (tradeIds.length === 0) return
   const client = getSupabaseClient()
   if (!client) return
-  await client.from('trades').delete().in('id', tradeIds)
+  await client.from('trades').update({ deleted_at: new Date().toISOString() }).in('id', tradeIds)
 }
 
-/** Delete all trades for a user from Supabase. No-op if not configured. */
+/** Soft-delete all trades for a user in Supabase. No-op if not configured. */
 export async function deleteAllSyncedTrades(userId: string): Promise<void> {
   const client = getSupabaseClient()
   if (!client) return
-  await client.from('trades').delete().eq('user_id', userId)
+  await client.from('trades').update({ deleted_at: new Date().toISOString() }).eq('user_id', userId)
 }
 
 /**
  * Full bidirectional sync for all trades.
- * - Pulls all remote trades for the user
- * - Merges with local (newer updated_at wins)
- * - Pushes any local-only trades to Supabase
+ * - Pulls all remote trades for the user (including soft-deleted)
+ * - Removes any local trades that were soft-deleted on another device
+ * - Merges active local + active remote (last-write-wins on updated_at)
+ * - Pushes any remaining local-only trades to Supabase
  * Returns count of records pulled and pushed.
  */
 export async function syncTrades(userId: string): Promise<{ pulled: number; pushed: number }> {
@@ -101,9 +104,17 @@ export async function syncTrades(userId: string): Promise<{ pulled: number; push
   if (error || !remoteData) return { pulled: 0, pushed: 0 }
 
   const remote = remoteData as RemoteTrade[]
-  const local = getTrades()
 
-  const { merged, toPush, pulled } = mergeTrades(local, remote as unknown as Trade[])
+  // Separate active trades from soft-deleted tombstones
+  const deletedIds = new Set(remote.filter(t => t.deleted_at != null).map(t => t.id))
+  const activeRemote = remote.filter(t => t.deleted_at == null)
+
+  // Apply remote deletions to local — removes trades deleted on another device
+  const localAll = getTrades()
+  const local = localAll.filter(t => !deletedIds.has(t.id))
+  if (local.length < localAll.length) replaceTrades(local)
+
+  const { merged, toPush, pulled } = mergeTrades(local, activeRemote as unknown as Trade[])
   replaceTrades(merged)
 
   // Batch push local-only trades
