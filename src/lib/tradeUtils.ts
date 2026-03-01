@@ -44,12 +44,17 @@ export function calcResultPct(pnl: number, entry: number, qty: number): number {
   return Math.round((pnl / (entry * qty)) * 100 * 100) / 100
 }
 
-/** Aggregate realized P&L across multiple exit lots. Fees are for the whole position. Rounded to 2dp. */
+/**
+ * Aggregate realized P&L across multiple exit lots. Fees are for the whole position.
+ * Pass positionQty to prorate fees by the fraction of the position actually exited.
+ * Rounded to 2dp.
+ */
 export function calcPartialPnl(
   direction: 'long' | 'short',
   entry: number,
   lots: { qty: number; price: number }[],
-  fees = 0
+  fees = 0,
+  positionQty?: number
 ): number {
   if (lots.length === 0) return 0
   const gross = lots.reduce((sum, lot) => {
@@ -57,7 +62,11 @@ export function calcPartialPnl(
       ? (lot.price - entry) * lot.qty
       : (entry - lot.price) * lot.qty)
   }, 0)
-  return Math.round((gross - fees) * 100) / 100
+  const exitedQty = lots.reduce((s, l) => s + l.qty, 0)
+  const proratedFees = positionQty && positionQty > 0
+    ? fees * (exitedQty / positionQty)
+    : fees
+  return Math.round((gross - proratedFees) * 100) / 100
 }
 
 /** Sum of quantities across exit lots. */

@@ -87,6 +87,8 @@ function PriceInput({
   placeholder,
   required,
   id,
+  hasError,
+  errorId,
 }: {
   label: string
   value: string
@@ -94,6 +96,8 @@ function PriceInput({
   placeholder?: string
   required?: boolean
   id?: string
+  hasError?: boolean
+  errorId?: string
 }) {
   return (
     <div>
@@ -108,8 +112,10 @@ function PriceInput({
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder ?? '0.00'}
-          className="input pl-6 font-mono text-sm"
+          className={`input pl-6 font-mono text-sm${hasError ? ' border-loss' : ''}`}
           required={required}
+          aria-invalid={hasError || undefined}
+          aria-describedby={errorId && hasError ? errorId : undefined}
         />
       </div>
     </div>
@@ -458,8 +464,10 @@ export default function NewTrade() {
                     placeholder="AAPL"
                     className={`input font-mono font-semibold text-base tracking-widest uppercase ${errors.ticker ? 'border-loss' : ''}`}
                     maxLength={10}
+                    aria-invalid={errors.ticker ? true : undefined}
+                    aria-describedby={errors.ticker ? 'nt-ticker-err' : undefined}
                   />
-                  {errors.ticker && <p className="text-xs text-loss mt-1">{errors.ticker}</p>}
+                  {errors.ticker && <p id="nt-ticker-err" className="text-xs text-loss mt-1">{errors.ticker}</p>}
                 </div>
                 <div className="w-44">
                   <Label required>Direction</Label>
@@ -515,7 +523,10 @@ export default function NewTrade() {
                     value={form.entry_time}
                     onChange={e => update('entry_time', e.target.value)}
                     className={`input text-sm ${errors.entry_time ? 'border-loss' : ''}`}
+                    aria-invalid={errors.entry_time ? true : undefined}
+                    aria-describedby={errors.entry_time ? 'nt-entry-time-err' : undefined}
                   />
+                  {errors.entry_time && <p id="nt-entry-time-err" className="text-xs text-loss mt-1">{errors.entry_time}</p>}
                 </div>
               </div>
             </div>
@@ -532,8 +543,10 @@ export default function NewTrade() {
                   value={form.entry_price}
                   onChange={v => update('entry_price', v)}
                   required
+                  hasError={!!errors.entry_price}
+                  errorId="nt-entry-price-err"
                 />
-                {errors.entry_price && <p className="text-xs text-loss mt-1">{errors.entry_price}</p>}
+                {errors.entry_price && <p id="nt-entry-price-err" className="text-xs text-loss mt-1">{errors.entry_price}</p>}
               </div>
 
               {/* Exit Lots — multi-row, one row per exit fill */}
@@ -632,8 +645,10 @@ export default function NewTrade() {
                     onChange={e => update('quantity', e.target.value)}
                     placeholder="100"
                     className={`input font-mono text-sm ${errors.quantity ? 'border-loss' : ''}`}
+                    aria-invalid={errors.quantity ? true : undefined}
+                    aria-describedby={errors.quantity ? 'nt-quantity-err' : undefined}
                   />
-                  {errors.quantity && <p className="text-xs text-loss mt-1">{errors.quantity}</p>}
+                  {errors.quantity && <p id="nt-quantity-err" className="text-xs text-loss mt-1">{errors.quantity}</p>}
                 </div>
                 <div>
                   <Label htmlFor="nt-fees">Fees / Commission</Label>
@@ -662,7 +677,7 @@ export default function NewTrade() {
                     const fees = parseFloat(form.fees) || 0
                     const lots = filledExitLots.map(l => ({ qty: parseFloat(l.qty), price: parseFloat(l.price) }))
                     const totalExitQty = lots.reduce((s, l) => s + l.qty, 0)
-                    const pnl = calcPartialPnl(form.direction, entry, lots, fees)
+                    const pnl = calcPartialPnl(form.direction, entry, lots, fees, qty)
                     const pct = entry > 0 ? (pnl / (entry * qty)) * 100 : 0
                     const isProfit = pnl >= 0
                     const isPartial = Math.abs(totalExitQty - qty) > 0.001

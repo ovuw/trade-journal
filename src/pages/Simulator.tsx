@@ -91,7 +91,8 @@ function tradeOnlyBestSetup(trades: Trade[]): Trade[] {
     const winRate = wins.length / ts.length
     const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (t.pnl ?? 0), 0) / wins.length : 0
     const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (t.pnl ?? 0), 0)) / losses.length : 0
-    const ev = winRate * avgWin - (1 - winRate) * avgLoss
+    const lossRate = losses.length / ts.length
+    const ev = winRate * avgWin - lossRate * avgLoss
     if (ev > bestEv) { bestEv = ev; bestSetup = id }
   }
   if (!bestSetup) return trades

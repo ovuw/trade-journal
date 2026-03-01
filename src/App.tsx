@@ -36,7 +36,17 @@ function App() {
   const [credentialsLoaded, setCredentialsLoaded] = useState(false)
 
   useEffect(() => {
-    loadCredentials().then(() => setCredentialsLoaded(true))
+    // 5s timeout guards against Tauri IPC hang on credentials load
+    const timeout = new Promise<void>(resolve => setTimeout(resolve, 5000))
+    Promise.race([loadCredentials(), timeout]).then(() => setCredentialsLoaded(true))
+  }, [])
+
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      console.error('Unhandled promise rejection:', event.reason)
+    }
+    window.addEventListener('unhandledrejection', handler)
+    return () => window.removeEventListener('unhandledrejection', handler)
   }, [])
 
   runMigrations()

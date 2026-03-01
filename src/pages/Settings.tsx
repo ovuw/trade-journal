@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import {
-  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell, Zap, Link,
+  Users, Cloud, Download, Upload, Trash2, Check, RefreshCw, Plus, Pencil, Bell, Zap, Link, ExternalLink,
 } from 'lucide-react'
 import { check as checkForUpdates } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
@@ -1090,6 +1090,24 @@ export default function Settings() {
           )}
         </div>
       </Section>
+
+      {/* ── Support ── */}
+      <div className="flex items-center justify-center gap-4 pb-2 text-xs text-text-muted">
+        <button
+          onClick={async () => {
+            try {
+              const { openUrl } = await import('@tauri-apps/plugin-opener')
+              await openUrl('https://github.com/ovuw/trade-journal/issues')
+            } catch {
+              window.open('https://github.com/ovuw/trade-journal/issues', '_blank', 'noopener,noreferrer')
+            }
+          }}
+          className="flex items-center gap-1 hover:text-text-primary transition-colors"
+        >
+          <ExternalLink size={11} />
+          Report an issue
+        </button>
+      </div>
 
     </div>
   )

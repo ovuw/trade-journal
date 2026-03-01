@@ -16,8 +16,8 @@ export function buildPrompt(trades: Trade[], rules: Rule[]): string {
   const grossLoss = Math.abs(losers.reduce((s, t) => s + (t.pnl ?? 0), 0))
   const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0
   const winRate = closed.length > 0 ? (winners.length / closed.length) * 100 : 0
-  const avgR = trades.filter(t => t.actual_r != null).reduce((s, t) => s + (t.actual_r ?? 0), 0) /
-    (trades.filter(t => t.actual_r != null).length || 1)
+  const withR = closed.filter(t => t.actual_r != null)
+  const avgR = withR.reduce((s, t) => s + (t.actual_r ?? 0), 0) / (withR.length || 1)
 
   const setupTagsList = getSetupTags()
 

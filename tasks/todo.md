@@ -2,151 +2,90 @@
 
 ## If you are a new agent, read this first
 - Project root: `/Users/ryanjones/projects/trade-journal/`
-- Full memory: `/Users/ryanjones/.claude/projects/-Users-ryanjones/memory/MEMORY.md`
+- Full memory: `/Users/ryanjones/.claude/projects/-Users-ryanjones-projects-trade-journal/memory/MEMORY.md`
 - Past mistakes + rules: `tasks/lessons.md` — read this before touching anything
 - Full original build spec (archived): `tasks/build-plan-archive.md`
 
 ## Current State
-- **Version:** 0.4.0 (released 2026-02-28) — next release will be v0.5.0
-- **Status:** All v0.5.0 features complete + code reviewed + pushed to main. Ready to tag.
-- Stack: Tauri + React + TypeScript + localStorage (primary) + Supabase (optional sync)
+- **Version:** v0.5.2 released (2026-03-01). Credentials security work pushed to main but not yet tagged.
+- **Status:** App is complete and daily-use ready. All audits passed.
+- Stack: Tauri + React + TypeScript + localStorage (trades) + credentials file (API keys) + Supabase (optional sync)
 - Auto-updater live via GitHub Releases — triggers on `v*` tags
-- GitHub repo is **public** (required for unauthenticated asset downloads / auto-updater)
 
 ## Key Paths
-- Types + default data: `src/types/index.ts` (DEFAULT_RULES, DEFAULT_CHECKLIST_LABELS)
+- Types + default data: `src/types/index.ts`
 - All localStorage ops: `src/lib/db.ts`
-- Pure trade helpers (P&L, session detection): `src/lib/tradeUtils.ts`
-- Supabase client (dynamic config): `src/lib/supabase.ts`
-- Trade sync logic (incl. exported `mergeTrades`): `src/lib/sync.ts`
-- Screenshot storage: `src/lib/storage.ts`
-- Image compression util: `src/lib/imageUtils.ts`
-- Unit tests: `src/__tests__/` — 110 tests, all passing
+- Credential storage (API keys): `src/lib/credentials.ts`
+- Pure trade helpers: `src/lib/tradeUtils.ts`
+- Supabase client: `src/lib/supabase.ts`
+- Trade sync logic: `src/lib/sync.ts`
+- Unit tests: `src/__tests__/` — 132 tests, all passing
 
 ## Design System
 - Tailwind tokens only — never hardcode hex
 - accent=#6366f1, profit=#10b981, loss=#ef4444, bg-primary=#0d0f14
-- Config: `tailwind.config.js`
 
 ## To Release a New Version
 1. Bump `version` in `src-tauri/tauri.conf.json` AND `src-tauri/Cargo.toml`
 2. Run `npx tsc --noEmit` and `npm test` — both must pass
 3. Commit, then: `git tag vX.Y.Z && git push origin main --tags`
 4. GitHub Actions builds macOS + Windows, signs, generates combined `latest.json`, publishes release
-5. GitHub repo: `ovuw/trade-journal`
 
-## Tsc Rule
-Always run `npx tsc --noEmit` after every TypeScript change. Zero errors required before marking anything done.
-Also run `npm test` — 86 tests must pass.
+## Completed This Session (2026-03-01 — Session 4)
 
-## Completed This Session (2026-03-01)
-
-### Partial Exit Support
-- `ExitLot` interface (`{qty, price, time}`) added to `src/types/index.ts`
-- `calcPartialPnl`, `calcRealizedQty`, `calcWeightedAvgExit` added to `src/lib/tradeUtils.ts`
-- Schema v2 migration in `db.ts` backfills `exit_lots` and `remaining_qty` on all existing trades
-- **NewTrade**: exit price field replaced with dynamic multi-row exit lots. Single smart button; P/L preview aggregates across lots. "Add exit lot" pill button (visible, outlined).
-- **TradeLog**: ExpandedRow shows per-lot breakdown. Inline close form accepts qty + exit price. PARTIAL badge (amber) for partial-exit trades.
-- **IBKR Flex sync** (`src/lib/ibkr.ts`): grouped lots by `symbol::openDateTime` → one trade per entry with `exit_lots[]` instead of one trade per lot. Backward-compatible dedup via synthetic txId.
-
-### IBKR CSV Import Fix
-- Root cause: IBKR Activity Statement CSV includes `DataDiscriminator=Lot` rows after each closing `Order` row. These re-state the original buy fill (positive qty, open price) for tax purposes. Parser was treating them as real buy transactions → positions never closed → all trades imported as OPEN.
-- Fix: skip rows where `datadiscriminator` is `'lot'`, `'subtotal'`, or `'total'` in `parseIBKR()`. Safe for old IBKR formats (no DataDiscriminator column → empty string → no rows skipped).
-- 8 new tests in `src/__tests__/csvImport.test.ts` including the key regression.
-
-### Sync Bug Fix
-- `exit_lots` and `remaining_qty` are stripped from Supabase upsert payload (schema doesn't have these columns yet). Prevents silent push failures that would have broken sync for all new trades.
-
-### Code Review
-- 110 tests pass, tsc --noEmit clean, all changes pushed to main.
-
-## Completed This Session (2026-02-28)
-
-### Open Positions Lifecycle
-- `src/types/index.ts` — `exit_price`, `exit_time`, `pnl`, `result_pct` are now `| null` (null = open position)
-- **NewTrade**: single smart button — "Save Open Position" when exit blank, "Save Trade" when filled. No separate button needed.
-- **QuickTradeModal**: same auto-detection — open or closed based on exit price presence
-- **TradeLog**: open trades float to top, OPEN badge (accent pill), `—` for null P&L, Close Trade inline form in expanded row (exit price + time → recalculates P&L via `calcPnl`)
-- **Dashboard**: all stats filtered to closed trades only (`closedFiltered`); Open Positions widget shows when any open trades exist, links to trade log
-- **Analytics + Review**: filtered to closed only before all calculations
-- Null-safety cascade: aiAnalysis.ts, analyticsUtils.ts, csvExport.ts, Journal.tsx, Settings.tsx, Simulator.tsx all updated
-
-### Position Calculator Improvements (`src/components/PositionCalculator.tsx`)
-- **Bidirectional**: entry + stop → position size (existing); entry + qty → implied stop price (new)
-- Implied stop card shows price, % from entry, and "Apply stop ↗" button that fills the stop_price field
-- **Position value** row always shows (entry × qty) when both are entered
-- **Stop %** row shows when stop price is set ("X.XX% from entry")
-
-### IBKR Auto-Import (Flex Query) — committed previously, same push
-- `src/lib/ibkr.ts`, `src/hooks/useIbkrSync.ts`, `src/__tests__/ibkrParser.test.ts`
-- 17 new tests; total: 86 passing
+### Secure Credentials
+- `src/lib/credentials.ts` — new file; `loadCredentials()`, `getCredential()`, `setCredential()`, `deleteCredential()`
+- Supabase config, Anthropic API key, IBKR Flex token moved from localStorage to `~/Library/Application Support/com.tradejournal.app/credentials.json` (chmod 600)
+- Auto-migrates existing localStorage values on first launch; deletes plaintext copies
+- `App.tsx` shows brief spinner until credentials load (<100ms); auto-sync hooks have 2s+ delays so timing is always safe
+- `db.ts` getters read from in-memory cache (sync); `saveSupabaseConfig`, `saveAnthropicKey`, `saveIbkrConfig` now async
+- `Settings.tsx` and `AIAnalysis.tsx` updated to await async setters
+- `keyring` crate tried and abandoned — v3 silently fails on unsigned macOS dev builds
 
 ## Pending Work
 
-### Tag v0.5.0
-All work is committed and pushed to main. Ready to release when confirmed stable.
-1. Bump version in `src-tauri/tauri.conf.json` AND `src-tauri/Cargo.toml` (0.4.0 → 0.5.0)
+### Tag v0.5.3
+All work committed and pushed to main. Bundle credentials change into next release.
+1. Bump version in `src-tauri/tauri.conf.json` AND `src-tauri/Cargo.toml` (0.5.2 → 0.5.3)
 2. `npx tsc --noEmit` + `npm test` — must pass
-3. `git add -A && git commit -m "Bump version to 0.5.0"`
-4. `git tag v0.5.0 && git push origin main --tags`
+3. `git add -A && git commit -m "Bump version to 0.5.3"`
+4. `git tag v0.5.3 && git push origin main --tags`
 
 ### Verify Windows auto-updater
-The v0.4.0 CI run completed. Confirm Windows app shows update dialog on next version.
+CI for v0.5.0/0.5.2 completed. Needs a Windows machine to confirm the update dialog appears on launch.
 
-### Add Supabase columns for exit lots sync (low priority)
-`exit_lots` and `remaining_qty` are currently stripped from sync payload because the Supabase schema doesn't have these columns.
-Core P/L data syncs correctly — only the per-lot breakdown is missing on the second computer.
-To fix:
-1. Run in Supabase SQL editor:
-   ```sql
-   alter table trades add column exit_lots jsonb;
-   alter table trades add column remaining_qty integer;
-   ```
-2. In `src/lib/sync.ts`, remove the destructure strip: `({ exit_lots, remaining_qty, ...t }) => ...` → `(t) => ...`
+### Add Supabase columns for exit lots sync (already done — verify only)
+Schema migration was already run in Supabase:
+```sql
+alter table trades add column exit_lots jsonb;
+alter table trades add column remaining_qty integer;
+```
+sync.ts already pushes full trade objects — no code change needed.
 
-### Secure credentials (low priority — personal use)
-Anthropic API key + Supabase credentials stored as plaintext in localStorage.
-Future: consider `tauri-plugin-stronghold` or OS keychain.
+## App Audit (2026-03-01)
 
-## Visual Audit (2026-03-01)
+### Medium Priority
+- [x] Error Monitoring — added `window.addEventListener('unhandledrejection', ...)` in App.tsx
+- [x] Security — added 5s Promise.race timeout on `loadCredentials()` in App.tsx
+- [x] IA — News and Simulator were fully implemented (audit false positive)
 
-- [x] Sidebar — expanded state
-- [x] Sidebar — collapsed state
-- [x] Dashboard — with data
-- [x] Dashboard — Open Positions widget
-- [x] Dashboard — empty state (no trades) ⚠️ BUG: deleting all trades locally doesn't delete from Supabase — sync on next save pulls them all back
-- [x] New Trade — full form (closed trade)
-- [x] New Trade — open position mode (exit blank)
-- [x] Position Calculator (embedded in New Trade)
-- [x] Quick Entry Modal (⚡)
-- [x] Trade Log — with trades
-- [x] Trade Log — expanded row / Close Trade inline form
-- [x] Trade Log — empty state
-- [x] Trade Log — bulk select mode ⚠️ Checkboxes always visible on every row — clutters the table; should be hover-reveal or behind a "Select" mode toggle
-- [x] Review
-- [x] Analytics
-- [x] Journal
-- [x] Playbook
-- [x] AI Analysis
-- [x] Simulator ⚠️ "Best Setup Only" scenario description says "Shows focus benefit" but result can be negative — description should acknowledge both outcomes (focus benefit OR focus cost depending on your data)
-- [x] News
-- [x] Settings
-- [x] Keyboard Shortcuts Modal
+### Low Priority
+- [x] QA/Testing — expanded CSV import tests from 8 → 28 (generic format, Tastytrade, TDA, edge cases, parseCsvRow/parseNum paths)
+- [x] DevOps — synced package.json version to 0.5.2
 
-### Issues to fix
-- [x] Dashboard — Delete all local trades also needs to delete from Supabase, otherwise sync on next save restores everything
-- [x] Trade Log — Bulk select checkboxes always visible; hide behind hover or a "Select" mode toggle to reduce visual noise
-- [x] Simulator — "Best Setup Only" description says "Shows focus benefit" but result can be negative; update copy to reflect both outcomes
+## Math Audit (2026-03-01)
 
----
+- [x] avgR scope in AI prompt — fixed in `aiAnalysis.ts`; now filters to `closed` before averaging
+- [x] EV formula inconsistency — fixed in `Simulator.tsx`; uses `losses.length / ts.length` (matches analyticsUtils)
+- [x] Partial-exit fee proration — fixed in `tradeUtils.ts` (`positionQty` param) + `NewTrade.tsx` (passes qty); 2 new tests added
 
-## Previous Session Audit History (for reference)
+## UX Audit (2026-03-01)
 
-### UX Audit (2026-02-28) — COMPLETE ✓
-All 14 items shipped. Toast system, onboarding banner, keyboard nav, QuickTradeModal draft persistence, etc.
-
-### App Audit (2026-02-28) — COMPLETE ✓
-useMemo perf, schema migrations, screenshot quota guard, ErrorBoundary crash log, db cache.
-
-### Math Audit (2026-02-28) — COMPLETE ✓
-All P&L formulas verified correct. avgLoss consistency fix, EV formula fix, P&L rounding on save.
+- [x] Changelogs/Release Notes — `CHANGELOG.md` created; `release.yml` now extracts per-version notes for both `gh release create` and `latest.json`
+- [x] Feedback Channel — "Report an issue" link added to bottom of Settings page
+- [x] Sync Status Indicator — already fully implemented in sidebar (audit false positive)
+- [x] Keyboard Navigation — arrow-key nav in Trade Log already fully implemented (audit false positive)
+- [x] Content Strategy — Review page already has a CTA button (audit false positive)
+- [x] Accessibility — added `aria-invalid` + `aria-describedby` to 4 NewTrade form fields (ticker, entry time, entry price, quantity); extended PriceInput with `hasError`/`errorId` props
+- [ ] Onboarding Flow — after first trade saved, surface one-time prompt to configure Playbook rules/tags (progressive disclosure)
+- [ ] Micro-interactions — consider a profit-glow flash on stat cards when a winning trade is saved

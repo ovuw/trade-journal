@@ -17,10 +17,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "${{ github.ref_name }}" 2>/dev/null || \
-          gh release create "${{ github.ref_name }}" \
-            --title "Trade Journal ${{ github.ref_name }}" \
-            --notes "Bug fixes and improvements."
+          TAG="${{ github.ref_name }}"
+          CLEAN_VERSION="${TAG#v}"
+          python3 -c "
+import re, sys
+with open('CHANGELOG.md') as f:
+    content = f.read()
+version = '${CLEAN_VERSION}'
+m = re.search(r'## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=\n## \[|\Z)', content, re.DOTALL)
+notes = m.group(1).strip() if m else 'Bug fixes and improvements.'
+print(notes)
+" > /tmp/release_notes.txt
+          gh release view "$TAG" 2>/dev/null || \
+          gh release create "$TAG" \
+            --title "Trade Journal $TAG" \
+            --notes-file /tmp/release_notes.txt
 
   build:
     needs: create-release
@@ -178,7 +189,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 << 'PYEOF'
-          import json, os
+          import json, os, re
           from datetime import datetime, timezone
 
           with open('src-tauri/tauri.conf.json') as f:
@@ -192,9 +203,14 @@ jobs:
 
           tag = os.environ['GITHUB_REF_NAME']
 
+          with open('CHANGELOG.md') as f:
+              cl = f.read()
+          m = re.search(r'## \[' + re.escape(version) + r'\][^\n]*\n(.*?)(?=\n## \[|\Z)', cl, re.DOTALL)
+          notes = m.group(1).strip() if m else 'Bug fixes and improvements.'
+
           data = {
               'version': version,
-              'notes': 'Bug fixes and improvements.',
+              'notes': notes,
               'pub_date': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
               'platforms': {
                   'darwin-aarch64': {

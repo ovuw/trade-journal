@@ -118,6 +118,17 @@ describe('calcPartialPnl', () => {
     const lots = [{ qty: 50, price: 110 }]
     expect(calcPartialPnl('long', 100, lots)).toBe(500)
   })
+
+  it('prorates fees by exited fraction when positionQty provided', () => {
+    // 50 of 100 shares sold @ 110 = +$500 gross, fees $10 total → prorate $5
+    const lots = [{ qty: 50, price: 110 }]
+    expect(calcPartialPnl('long', 100, lots, 10, 100)).toBe(495)
+  })
+
+  it('applies full fees when positionQty not provided (backward compat)', () => {
+    const lots = [{ qty: 50, price: 110 }]
+    expect(calcPartialPnl('long', 100, lots, 10)).toBe(490)
+  })
 })
 
 // ─── calcRealizedQty ──────────────────────────────────────────────────────────
