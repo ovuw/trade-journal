@@ -124,7 +124,7 @@ jobs:
           os.makedirs(outdir, exist_ok=True)
           exe = 'src-tauri/target/release/bundle/nsis/Trade Journal_${VERSION}_x64-setup.exe'
           out = outdir + '/Trade.Journal_${VERSION}_x64-setup.nsis.zip'
-          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zf:
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_STORED) as zf:
               zf.write(exe, os.path.basename(exe))
           print('Created', out)
           "
